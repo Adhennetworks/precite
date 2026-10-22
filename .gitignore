@@ -1,0 +1,64 @@
+﻿# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# === Caches outils ===
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# === Secrets ===
+.env
+.env.local
+.env.*.local
+
+# === MLflow local (sur HF: precite-models) ===
+mlruns/
+mlartifacts/
+mlflow.db
+mlflow.db-wal
+mlflow.db-shm
+mlflow.db.*
+
+# === Bases locales ===
+*.db
+*.db-journal
+precite.db
+
+# === Données : tout est sur HF sauf 3 fichiers légers ===
+data/*
+!data/registry.parquet
+!data/stats.json
+!data/target_completeness.parquet
+!data/.gitkeep
+
+# === Fichiers temporaires ===
+tmp_*/
+tmp_*.parquet
+*.log
+*.err
+*.bak
+*.old
+*.part
+test_pubmed.gz
+*.gz
+*.zip
+
+# === HuggingFace cache ===
+.cache/
+huggingface/

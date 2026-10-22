@@ -1,0 +1,61 @@
+name: Deploy HF Spaces (legacy)
+
+on:
+  # Declenchement manuel uniquement (l'ancien trigger etait push:tags: v*)
+  workflow_dispatch:
+    inputs:
+      deploy_api:
+        description: "Deployer l'API"
+        type: boolean
+        default: true
+      deploy_web:
+        description: "Deployer le Web"
+        type: boolean
+        default: true
+
+jobs:
+  deploy-api:
+    if: github.event.inputs.deploy_api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+
+      - name: Deploy API to HF Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/deploy_hf_space.py \
+            --space precite-api \
+            --source . \
+            --dockerfile docker/api/Dockerfile
+
+  deploy-web:
+    if: github.event.inputs.deploy_web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+
+      - name: Deploy Web to HF Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/deploy_hf_space.py \
+            --space precite \
+            --source apps/web \
+            --dockerfile docker/web/Dockerfile

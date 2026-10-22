@@ -1,0 +1,28 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Warmup annuel
+        run: |
+          curl -s -o /dev/null -w "annual: HTTP %{http_code} en %{time_total}s\n" \
+            --max-time 90 \
+            https://precite-api.onrender.com/papers/19585584
+
+      - name: Warmup production
+        run: |
+          curl -s -o /dev/null -w "production: HTTP %{http_code} en %{time_total}s\n" \
+            --max-time 90 \
+            https://precite-api.onrender.com/papers/38509752
+
+      - name: Health check
+        run: |
+          curl -s -o /dev/null -w "health: HTTP %{http_code} en %{time_total}s\n" \
+            https://precite-api.onrender.com/health

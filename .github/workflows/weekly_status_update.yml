@@ -1,0 +1,52 @@
+name: Weekly Status Update
+
+on:
+  schedule:
+    # Tous les dimanches à 3h UTC
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[train]"
+          pip install huggingface_hub duckdb
+
+      - name: Download data from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/download_from_hf.py \
+            --source preciteproject/precite-data \
+            --target data
+
+      - name: Consolidate status updates
+        run: python scripts/consolidate_status.py
+
+      - name: Compute stats
+        run: python scripts/compute_stats.py
+        
+      - name: Update papers (rebuild)
+        run: python scripts/rebuild_papers.py
+
+      - name: Upload updates to HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/upload_to_hf.py \
+            --target preciteproject/precite-data \
+            --root data

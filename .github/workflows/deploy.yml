@@ -1,0 +1,149 @@
+name: CD - Deploy to Render
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  API_URL: https://precite-api.onrender.com
+  WEB_URL: https://precite-web.onrender.com
+  # IDs de service Render (dans l'URL du dashboard)
+  API_SERVICE_ID: srv-db099oqd0e5s73akuuc0
+  WEB_SERVICE_ID: srv-db0abmvavr4c73eqn8eg
+
+jobs:
+  deploy-api:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Trigger Render deploy (API via API)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SERVICE_ID: ${{ env.API_SERVICE_ID }}
+        run: |
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "::error::Secret RENDER_API_KEY manquant"
+            exit 1
+          fi
+          if [ -z "$SERVICE_ID" ] || echo "$SERVICE_ID" | grep -q "REMPLACE"; then
+            echo "::error::API_SERVICE_ID non configure dans le YAML"
+            exit 1
+          fi
+          echo "Deploiement API ($SERVICE_ID)..."
+          HTTP_CODE=$(curl -sS --max-time 60 -o /tmp/render_resp.txt -w "%{http_code}" \
+            -X POST \
+            "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}')
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/render_resp.txt 2>/dev/null | head -c 500
+          echo
+          if [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Deploy API declenche (HTTP $HTTP_CODE)"
+          else
+            echo "::error::Trigger deploy API echoue (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+      - name: Wait for API to be live
+        run: |
+          echo "Attente que $API_URL soit live (max 20 min)..."
+          for i in $(seq 1 120); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$API_URL/health" || echo "000")
+            if [ "$CODE" = "200" ]; then
+              echo "✅ API live apres $((i*10))s"
+              exit 0
+            fi
+            echo "  [$i/120] HTTP $CODE — attente 10s"
+            sleep 10
+          done
+          echo "::error::API pas live apres 20 min"
+          exit 1
+
+      - name: Smoke test API
+        run: |
+          echo "=== /health ==="
+          HEALTH=$(curl -sS --max-time 120 "$API_URL/health")
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"' || { echo "::error::/health KO"; exit 1; }
+
+          echo "=== /status_report ==="
+          STATUS=$(curl -sS --max-time 120 "$API_URL/status_report")
+          echo "$STATUS" | head -c 200; echo
+          echo "$STATUS" | grep -q '"total_articles"' || { echo "::error::/status_report KO"; exit 1; }
+
+          echo "=== /papers/19585584 ==="
+          PAPER=$(curl -sS --max-time 180 "$API_URL/papers/19585584")
+          echo "$PAPER" | head -c 200; echo
+          echo "$PAPER" | grep -q '"pmid":"19585584"' || { echo "::error::/papers KO"; exit 1; }
+          echo "$PAPER" | grep -q '"predictions":\[' || { echo "::error::predictions KO"; exit 1; }
+
+          echo "✅ Smoke tests API OK"
+
+  deploy-web:
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Trigger Render deploy (Web via API)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SERVICE_ID: ${{ env.WEB_SERVICE_ID }}
+        run: |
+          if [ -z "$SERVICE_ID" ] || echo "$SERVICE_ID" | grep -q "REMPLACE"; then
+            echo "::error::WEB_SERVICE_ID non configure dans le YAML"
+            exit 1
+          fi
+          echo "Deploiement Web ($SERVICE_ID)..."
+          HTTP_CODE=$(curl -sS --max-time 60 -o /tmp/render_resp.txt -w "%{http_code}" \
+            -X POST \
+            "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}')
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/render_resp.txt 2>/dev/null | head -c 500
+          echo
+          if [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Deploy Web declenche (HTTP $HTTP_CODE)"
+          else
+            echo "::error::Trigger deploy Web echoue (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+      - name: Wait for Web to be live
+        run: |
+          echo "Attente que $WEB_URL soit live (max 15 min)..."
+          for i in $(seq 1 90); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$WEB_URL/" || echo "000")
+            if [ "$CODE" = "200" ]; then
+              echo "✅ Web live apres $((i*10))s"
+              exit 0
+            fi
+            echo "  [$i/90] HTTP $CODE — attente 10s"
+            sleep 10
+          done
+          echo "::error::Web pas live apres 15 min"
+          exit 1
+
+      - name: Smoke test Web
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$WEB_URL/")
+          echo "HTTP $CODE"
+          [ "$CODE" = "200" ] || { echo "::error::Web KO"; exit 1; }
+          echo "✅ Smoke test Web OK"
+
+      - name: Notify success
+        if: success()
+        run: echo "🚀 Deploiement API + Web termine"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Deploiement echoue"
+          echo "Rollback : Dashboard Render → Manual Deploy → previous commit"

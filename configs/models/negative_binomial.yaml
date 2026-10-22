@@ -1,0 +1,4 @@
+# Regression binomiale negative sur counts bruts - cf. papier Precite Section 4.2
+model: negative_binomial
+run_name: precite-nb-counts
+params: {}

@@ -1,0 +1,280 @@
+{
+  "generated_at": "2026-10-16T14:48:52Z",
+  "total_articles": 40919297,
+  "total_predictions": 80630167,
+  "total_models": 86,
+  "medline_breakdown": [
+    {
+      "status": "MEDLINE",
+      "n": 33383058,
+      "pct": 81.58
+    },
+    {
+      "status": "PubMed-not-MEDLINE",
+      "n": 6585451,
+      "pct": 16.09
+    },
+    {
+      "status": "Publisher",
+      "n": 593458,
+      "pct": 1.45
+    },
+    {
+      "status": "In-Process",
+      "n": 357225,
+      "pct": 0.87
+    },
+    {
+      "status": "In-Data-Review",
+      "n": 105,
+      "pct": 0.0
+    }
+  ],
+  "medline_breakdown_recent": [
+    {
+      "status": "MEDLINE",
+      "n": 6440862,
+      "pct": 61.3
+    },
+    {
+      "status": "PubMed-not-MEDLINE",
+      "n": 3206536,
+      "pct": 30.52
+    },
+    {
+      "status": "Publisher",
+      "n": 502874,
+      "pct": 4.79
+    },
+    {
+      "status": "In-Process",
+      "n": 357121,
+      "pct": 3.4
+    },
+    {
+      "status": "In-Data-Review",
+      "n": 105,
+      "pct": 0.0
+    }
+  ],
+  "by_year": [
+    {
+      "year": 2020,
+      "n": 1405081
+    },
+    {
+      "year": 2021,
+      "n": 1558479
+    },
+    {
+      "year": 2022,
+      "n": 1576298
+    },
+    {
+      "year": 2023,
+      "n": 1543251
+    },
+    {
+      "year": 2024,
+      "n": 1563651
+    },
+    {
+      "year": 2025,
+      "n": 1922835
+    },
+    {
+      "year": 2026,
+      "n": 935017
+    },
+    {
+      "year": 2027,
+      "n": 2880
+    },
+    {
+      "year": 2028,
+      "n": 6
+    }
+  ],
+  "by_year_medline": [
+    {
+      "year": 2020,
+      "status": "In-Process",
+      "n": 26
+    },
+    {
+      "year": 2020,
+      "status": "MEDLINE",
+      "n": 992245
+    },
+    {
+      "year": 2020,
+      "status": "PubMed-not-MEDLINE",
+      "n": 406674
+    },
+    {
+      "year": 2020,
+      "status": "Publisher",
+      "n": 6136
+    },
+    {
+      "year": 2021,
+      "status": "In-Process",
+      "n": 123
+    },
+    {
+      "year": 2021,
+      "status": "MEDLINE",
+      "n": 1063303
+    },
+    {
+      "year": 2021,
+      "status": "PubMed-not-MEDLINE",
+      "n": 489342
+    },
+    {
+      "year": 2021,
+      "status": "Publisher",
+      "n": 5711
+    },
+    {
+      "year": 2022,
+      "status": "In-Process",
+      "n": 102
+    },
+    {
+      "year": 2022,
+      "status": "MEDLINE",
+      "n": 1055265
+    },
+    {
+      "year": 2022,
+      "status": "PubMed-not-MEDLINE",
+      "n": 511544
+    },
+    {
+      "year": 2022,
+      "status": "Publisher",
+      "n": 9387
+    },
+    {
+      "year": 2023,
+      "status": "In-Process",
+      "n": 15942
+    },
+    {
+      "year": 2023,
+      "status": "MEDLINE",
+      "n": 960146
+    },
+    {
+      "year": 2023,
+      "status": "PubMed-not-MEDLINE",
+      "n": 533276
+    },
+    {
+      "year": 2023,
+      "status": "Publisher",
+      "n": 33887
+    },
+    {
+      "year": 2024,
+      "status": "In-Data-Review",
+      "n": 17
+    },
+    {
+      "year": 2024,
+      "status": "In-Process",
+      "n": 27596
+    },
+    {
+      "year": 2024,
+      "status": "MEDLINE",
+      "n": 984161
+    },
+    {
+      "year": 2024,
+      "status": "PubMed-not-MEDLINE",
+      "n": 534080
+    },
+    {
+      "year": 2024,
+      "status": "Publisher",
+      "n": 17797
+    },
+    {
+      "year": 2025,
+      "status": "In-Data-Review",
+      "n": 86
+    },
+    {
+      "year": 2025,
+      "status": "In-Process",
+      "n": 183042
+    },
+    {
+      "year": 2025,
+      "status": "MEDLINE",
+      "n": 1040268
+    },
+    {
+      "year": 2025,
+      "status": "PubMed-not-MEDLINE",
+      "n": 564913
+    },
+    {
+      "year": 2025,
+      "status": "Publisher",
+      "n": 134526
+    },
+    {
+      "year": 2026,
+      "status": "In-Data-Review",
+      "n": 2
+    },
+    {
+      "year": 2026,
+      "status": "In-Process",
+      "n": 130257
+    },
+    {
+      "year": 2026,
+      "status": "MEDLINE",
+      "n": 344282
+    },
+    {
+      "year": 2026,
+      "status": "PubMed-not-MEDLINE",
+      "n": 166196
+    },
+    {
+      "year": 2026,
+      "status": "Publisher",
+      "n": 294280
+    },
+    {
+      "year": 2027,
+      "status": "In-Process",
+      "n": 33
+    },
+    {
+      "year": 2027,
+      "status": "MEDLINE",
+      "n": 1192
+    },
+    {
+      "year": 2027,
+      "status": "PubMed-not-MEDLINE",
+      "n": 511
+    },
+    {
+      "year": 2027,
+      "status": "Publisher",
+      "n": 1144
+    },
+    {
+      "year": 2028,
+      "status": "Publisher",
+      "n": 6
+    }
+  ]
+}

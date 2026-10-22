@@ -1,0 +1,16 @@
+name: Data Quality
+on:
+  schedule:
+    - cron: "0 4 * * 1"  # lundi 4h UTC
+  workflow_dispatch:
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: python scripts/download_from_hf.py --source preciteproject/precite-data --target data
+        env: {HF_TOKEN: "${{ secrets.HF_TOKEN }}"}
+      - run: pytest tests/quality -v

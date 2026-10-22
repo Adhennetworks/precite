@@ -1,0 +1,48 @@
+services:
+  # ─── API FastAPI ─────────────────────────────────────────────────────
+  - type: web
+    name: precite-api
+    runtime: python
+    region: frankfurt
+    plan: free
+    branch: main
+    rootDir: .
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -e ".[api]"
+    startCommand: |
+      uvicorn precite.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: PRECITE_REMOTE
+        value: "true"
+      - key: PRECITE_MLFLOW_TRACKING_URI
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_DATASET
+        value: preciteproject/precite-data
+
+  # ─── Web Streamlit ───────────────────────────────────────────────────
+  - type: web
+    name: precite-web
+    runtime: python
+    region: frankfurt
+    plan: free
+    branch: main
+    rootDir: .
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r apps/web/requirements.txt
+    startCommand: streamlit run apps/web/Home.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: PRECITE_API_URL
+        value: https://precite-api.onrender.com
+      - key: HF_TOKEN
+        sync: false

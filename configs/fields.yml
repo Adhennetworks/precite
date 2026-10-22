@@ -1,0 +1,25 @@
+# Mapping declaratif PubMed XML -> features Precite.
+# Toute balise absente de cette config n'est jamais lue en memoire.
+#
+# NOTE : l'extraction des references est faite en code (parser.py)
+# car le format a change entre anciens et recents PubMed :
+#   - Anciens : <MedlineCitation><Article><ReferenceList>
+#   - Recents : <PubmedData><ReferenceList><Reference><Citation>texte</Citation>
+# On cherche donc dans les deux emplacements directement dans le parser.
+
+item_tag: PubmedArticle
+
+fields:
+  pmid: "MedlineCitation/PMID"
+  title: "MedlineCitation/Article/ArticleTitle"
+  abstract: "MedlineCitation/Article/Abstract/AbstractText"
+  journal_issn: "MedlineCitation/Article/Journal/ISSN"
+  journal_title: "MedlineCitation/Article/Journal/Title"
+  year: "MedlineCitation/Article/Journal/JournalIssue/PubDate/Year"
+  medline_date: "MedlineCitation/Article/Journal/JournalIssue/PubDate/MedlineDate"
+  language: "MedlineCitation/Article/Language"
+  pub_types: "MedlineCitation/Article/PublicationTypeList/PublicationType"
+  mesh_terms: "MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName"
+  mesh_qualifiers: "MedlineCitation/MeshHeadingList/MeshHeading/QualifierName"
+  chemical_list: "MedlineCitation/ChemicalList/Chemical/NameOfSubstance"
+  grant_list: "MedlineCitation/Article/GrantList/Grant"

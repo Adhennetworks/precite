@@ -1,0 +1,4 @@
+# Modele lineaire sur arsinh(SJR) - cf. papier Precite Section 4.1
+model: lm
+run_name: precite-lm-arsinh-sjr
+params: {}
