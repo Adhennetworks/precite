@@ -8,7 +8,6 @@ import time
 import pytest
 import requests
 
-
 API_URL = os.environ.get(
     "PRECITE_API_URL",
     "https://precite-api.onrender.com",

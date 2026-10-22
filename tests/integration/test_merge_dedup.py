@@ -1,8 +1,9 @@
+
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
-import duckdb
 import pytest
-from pathlib import Path
+
 
 @pytest.mark.integration
 def test_merge_dedup_within_file(tmp_path):
