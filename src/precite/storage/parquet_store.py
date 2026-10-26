@@ -1,4 +1,4 @@
-"""Stockage Parquet + DuckDB pour Precite.
+﻿"""Stockage Parquet + DuckDB pour Precite.
 
 Remplace SQLite pour les tables volumineuses (papers, predictions, registry).
 DuckDB sert de moteur de requete in-process, sans serveur.
@@ -29,7 +29,7 @@ from precite.utils.logging import get_logger
 log = get_logger(__name__)
 
 
-# ─── Schemas ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 PAPERS_SCHEMA = pa.schema([
     ("pmid", pa.string()),
@@ -86,7 +86,7 @@ TARGET_COMPLETENESS_SCHEMA = pa.schema([
 ])
 
 
-# ─── Gestion de la base ─────────────────────────────────────────────────────
+# â”€â”€â”€ Gestion de la base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ParquetStore:
     HF_BASE = "https://huggingface.co/datasets/preciteproject/precite-data/resolve/main"
@@ -116,11 +116,13 @@ class ParquetStore:
         self.completeness_file = self.root / "target_completeness.parquet"
 
         self._con = duckdb.connect()
+        import threading
+        self._lock = threading.Lock()
         # Caches HTTP + parquet pour accelerer les requetes distantes
         try:
-            self._con.execute("SET enable_http_metadata_cache=true")
-            self._con.execute("SET parquet_metadata_cache=true")
-            self._con.execute("SET httpfs_connection_caching=true")
+            self._execute("SET enable_http_metadata_cache=true")
+            self._execute("SET parquet_metadata_cache=true")
+            self._execute("SET httpfs_connection_caching=true")
         except Exception:
             pass  # DuckDB ancien peut ne pas supporter ces flags
         self._papers_files: list[str] = []
@@ -146,7 +148,7 @@ class ParquetStore:
             ]:
                 d.mkdir(parents=True, exist_ok=True)
 
-    # ─── Setup remote ───────────────────────────────────────────────────
+    # â”€â”€â”€ Setup remote â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _setup_remote(self) -> None:
         try:
@@ -154,13 +156,13 @@ class ParquetStore:
         except ImportError as exc:
             raise RuntimeError("huggingface_hub est requis pour le mode remote") from exc
 
-        self._con.execute("INSTALL httpfs; LOAD httpfs;")
+        self._execute("INSTALL httpfs; LOAD httpfs;")
         # Active le prefetch des fichiers parquet
         with contextlib.suppress(Exception):
-            self._con.execute("SET prefetch_all_parquet_files=true")
+            self._execute("SET prefetch_all_parquet_files=true")
 
         if self.hf_token:
-            self._con.execute(f"""
+            self._execute(f"""
                 CREATE SECRET hf (
                     TYPE HTTP,
                     EXTRA_HTTP_HEADERS MAP {{
@@ -231,6 +233,13 @@ class ParquetStore:
             except Exception as exc:
                 log.warning("remote.download_failed", file=name, error=str(exc))
 
+    def _execute(self, query, params=None):
+        """Execute une requete DuckDB avec lock (thread-safe)."""
+        with self._lock:
+            if params is not None:
+                return self._con.execute(query, params)
+            return self._con.execute(query)
+
     def con(self) -> duckdb.DuckDBPyConnection:
         return self._con
     def _build_prediction_index(self) -> dict:
@@ -286,7 +295,7 @@ class ParquetStore:
         if annuals:
             return [annuals[max(annuals)]]
         return []
-    # ─── Helpers glob -> expression SQL ─────────────────────────────────
+    # â”€â”€â”€ Helpers glob -> expression SQL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def papers_dir_glob(self, decade: int | None = None) -> str:
         if self.remote:
@@ -330,7 +339,7 @@ class ParquetStore:
         if family:
             return f"read_parquet('{self.predictions_dir / f'family={family}'}/*.parquet')"
         return f"read_parquet('{self.predictions_dir}/family=*/*.parquet')"
-    # ─── PAPERS (write : local uniquement) ──────────────────────────────
+    # â”€â”€â”€ PAPERS (write : local uniquement) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def write_papers(self, papers_list: list[dict[str, Any]], batch_id: str) -> int:
         if self.remote:
@@ -422,7 +431,7 @@ class ParquetStore:
         log.info("parquet.papers.written", n=n_written, decades=len(by_decade))
         return n_written
 
-    # ─── PREDICTIONS (write : local uniquement) ─────────────────────────
+    # â”€â”€â”€ PREDICTIONS (write : local uniquement) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def write_predictions(
         self,
@@ -455,7 +464,7 @@ class ParquetStore:
                  family=family, model=model_name, n=len(rows), file=str(out_file))
         return len(rows)
 
-    # ─── REGISTRY (write : local uniquement) ────────────────────────────
+    # â”€â”€â”€ REGISTRY (write : local uniquement) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def upsert_model(
         self,
@@ -578,7 +587,7 @@ class ParquetStore:
         pq.write_table(table, out_file, compression="zstd")
         return len(rows)
 
-    # ─── TARGET COMPLETENESS (write : local uniquement) ─────────────────
+    # â”€â”€â”€ TARGET COMPLETENESS (write : local uniquement) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def update_target_completeness(
         self,
@@ -612,7 +621,7 @@ class ParquetStore:
         complete = df[df["complete"]]
         return int(complete["year"].max()) if len(complete) else None
 
-    # ─── QUERIES (DuckDB) ───────────────────────────────────────────────
+    # â”€â”€â”€ QUERIES (DuckDB) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def get_paper(self, pmid: str) -> dict | None:
         pmid_str = str(pmid).strip()
@@ -621,7 +630,7 @@ class ParquetStore:
         decade = None
         if index_file.exists():
             try:
-                r = self._con.execute(f"""
+                r = self._execute(f"""
                     SELECT decade FROM read_parquet('{index_file}')
                     WHERE pmid = ? LIMIT 1
                 """, [pmid_str]).fetchone()
@@ -644,7 +653,7 @@ class ParquetStore:
             papers_glob = self.papers_dir_glob()
 
         try:
-            result = self._con.execute(f"""
+            result = self._execute(f"""
                 SELECT * FROM {papers_glob}
                 WHERE CAST(pmid AS VARCHAR) = ?
                 LIMIT 1
@@ -674,7 +683,7 @@ class ParquetStore:
 
         preds_glob = self.predictions_glob(year=paper_year)
         try:
-            preds = self._con.execute(f"""
+            preds = self._execute(f"""
                 SELECT model_name, model_version, predicted_citations, predicted_at
                 FROM {preds_glob}
                 WHERE CAST(pmid AS VARCHAR) = ?
@@ -733,7 +742,7 @@ class ParquetStore:
 
         # 4. Requete
         try:
-            result = self._con.execute(f"""
+            result = self._execute(f"""
                 SELECT pmid, year, citations_3y, weighted_citations_3y
                 FROM read_parquet([{urls_sql}], union_by_name=true)
                 {where}
@@ -745,7 +754,7 @@ class ParquetStore:
             log.warning("search_papers.failed", error=str(exc))
             return []
 
-    # ─── STATS (avec cache) ─────────────────────────────────────────────
+    # â”€â”€â”€ STATS (avec cache) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def stats(self) -> dict:
         now = time.time()
@@ -771,13 +780,13 @@ class ParquetStore:
         papers_glob = self.papers_dir_glob()
         preds_glob = self.predictions_glob()
 
-        n_papers = self._con.execute(
+        n_papers = self._execute(
             f"SELECT COUNT(*) FROM {papers_glob}"
         ).fetchone()[0]
 
         n_preds = 0
         if any(self.predictions_dir.rglob("*.parquet")):
-            n_preds = self._con.execute(
+            n_preds = self._execute(
                 f"SELECT COUNT(*) FROM {preds_glob}"
             ).fetchone()[0]
 
@@ -785,7 +794,7 @@ class ParquetStore:
 
         by_year = []
         try:
-            rows = self._con.execute(f"""
+            rows = self._execute(f"""
                 SELECT year, COUNT(*) as n
                 FROM {papers_glob}
                 WHERE year >= 1950
@@ -809,7 +818,7 @@ class ParquetStore:
             return 0
         try:
             urls_sql = ", ".join(f"'{u}'" for u in urls)
-            r = self._con.execute(
+            r = self._execute(
                 f"SELECT SUM(num_rows) FROM parquet_file_metadata([{urls_sql}])"
             ).fetchone()
             return int(r[0]) if r and r[0] else 0
