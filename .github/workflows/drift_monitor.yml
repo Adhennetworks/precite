@@ -23,8 +23,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[train]"
-          pip install huggingface_hub duckdb evidently
-
+          pip install huggingface_hub duckdb
+          pip install "evidently==0.7.23"
+          
       - name: Download features from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
