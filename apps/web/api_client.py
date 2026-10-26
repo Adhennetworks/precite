@@ -40,10 +40,19 @@ def search_papers(year_min: int | None = None, year_max: int | None = None, limi
         params["year_min"] = year_min
     if year_max is not None:
         params["year_max"] = year_max
-    with httpx.Client(timeout=120.0) as c:
-        return c.get(f"{api_url()}/papers", params=params).json()
-
-
+    try:
+        with httpx.Client(timeout=120.0) as c:
+            r = c.get(f"{api_url()}/papers", params=params)
+            if r.status_code != 200:
+                raise RuntimeError(
+                    f"API a retourne HTTP {r.status_code} : {r.text[:200]}"
+                )
+            return r.json()
+    except httpx.TimeoutException:
+        raise RuntimeError(
+            "Recherche trop lente. Reduis la plage d'années ou la limite."
+        )
+    
 def list_models(model_type: str | None = None) -> dict[str, Any]:
     params = {}
     if model_type:

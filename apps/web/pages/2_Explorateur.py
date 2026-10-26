@@ -21,7 +21,7 @@ with col1:
 with col2:
     year_max = st.number_input("Année max", min_value=1970, max_value=2030, value=2023)
 with col3:
-    limit = st.number_input("Limite", min_value=10, max_value=10000, value=100)
+    limit = st.number_input("Limite", min_value=10, max_value=1000, value=100)
 
 try:
     data = cached_search(year_min=int(year_min), year_max=int(year_max), limit=int(limit))
