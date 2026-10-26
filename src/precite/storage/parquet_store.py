@@ -1,4 +1,4 @@
-﻿"""Stockage Parquet + DuckDB pour Precite.
+"""Stockage Parquet + DuckDB pour Precite.
 
 Remplace SQLite pour les tables volumineuses (papers, predictions, registry).
 DuckDB sert de moteur de requete in-process, sans serveur.
