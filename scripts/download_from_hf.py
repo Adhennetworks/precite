@@ -1,8 +1,5 @@
 """Telecharge les donnees depuis Hugging Face Datasets.
 
-Utilise au demarrage de l'API sur Render : si data/ n'existe pas ou est vide,
-on telecharge tout depuis HF.
-
 Usage :
     python scripts/download_from_hf.py --source preciteproject/precite-data --target data
 """
@@ -12,7 +9,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
@@ -39,6 +35,7 @@ def main() -> int:
 
     # 1. Detecter si les donnees sont deja la
     required = [
+        target / "features",
         target / "papers",
         target / "predictions" / "family=lm",
         target / "predictions" / "family=nb",
@@ -48,13 +45,21 @@ def main() -> int:
 
     if not args.force:
         all_present = all(p.exists() for p in required)
-        if all_present and any((target / "papers").glob("*.parquet")):
+        features_ok = (
+            (target / "features").exists()
+            and any((target / "features").glob("*.parquet"))
+        )
+        papers_ok = (
+            (target / "papers").exists()
+            and any((target / "papers").glob("*.parquet"))
+        )
+        if all_present and papers_ok and features_ok:
             print(f"Donnees deja presentes dans {target}")
             for p in required:
                 if p.is_file():
                     size_mb = p.stat().st_size / 1024**2
                     print(f"  {p.name} : {size_mb:.1f} MB")
-                else:
+                elif p.is_dir():
                     n = len(list(p.rglob("*.parquet")))
                     print(f"  {p.name}/ : {n} fichiers")
             return 0
@@ -63,7 +68,15 @@ def main() -> int:
     print(f"Telechargement depuis {args.source}...")
     print(f"Vers : {target}")
 
-    t0 = time.time()
+    allow_patterns = [
+        "features/chunk-*.parquet",
+        "pmid_index.parquet",
+        "registry.parquet",
+        "target_completeness.parquet",
+        "stats.json",
+        "papers/decade=*.parquet",
+        "predictions/family=*/model=*.parquet",
+    ]
 
     try:
         snapshot_download(
@@ -72,13 +85,11 @@ def main() -> int:
             local_dir=str(target),
             token=token,
             max_workers=4,
+            allow_patterns=allow_patterns,
         )
     except Exception as exc:
         print(f"Erreur telechargement : {exc}")
         return 1
-
-    elapsed = time.time() - t0
-    print(f"=== Termine en {elapsed/60:.1f} min ===")
 
     # 3. Verification
     print()
