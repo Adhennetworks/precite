@@ -23,7 +23,7 @@ def stats() -> dict[str, Any]:
 
 
 def get_paper(pmid: str) -> dict[str, Any] | None:
-    with httpx.Client(timeout=10.0) as c:
+    with httpx.Client(timeout=120.0) as c: 
         r = c.get(f"{api_url()}/papers/{pmid}")
         if r.status_code == 404:
             return None
