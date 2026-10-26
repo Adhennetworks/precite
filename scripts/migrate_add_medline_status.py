@@ -18,10 +18,8 @@ import time
 from pathlib import Path
 
 import duckdb
-import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import HfApi, hf_hub_download
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "preciteproject/precite-data"
@@ -84,7 +82,7 @@ def main() -> int:
         # Verifie si deja migre
         schema = pq.read_schema(p)
         if "medline_status" in schema.names:
-            print(f"  deja migre, skip")
+            print("  deja migre, skip")
             continue
 
         # Join via DuckDB + ecrit un nouveau fichier

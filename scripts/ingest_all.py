@@ -131,7 +131,7 @@ def main() -> int:
         skipped = len(all_files) - len(todo)
 
     print()
-    print(f"=== Plan d'ingestion ===")
+    print("=== Plan d'ingestion ===")
     print(f"Plage          : n{args.start:04d} - n{args.end:04d}")
     print(f"Total          : {len(all_files)} fichiers")
     print(f"A ingerer      : {len(todo)} fichiers")
@@ -209,7 +209,7 @@ def main() -> int:
     if failed_files:
         print()
         print(f"Fichiers en echec : {failed_files}")
-        print(f"Pour reprendre : python scripts/ingest_all.py --only-failed")
+        print("Pour reprendre : python scripts/ingest_all.py --only-failed")
         state["failed"] = failed_files
         save_state(args.state_file, state)
 

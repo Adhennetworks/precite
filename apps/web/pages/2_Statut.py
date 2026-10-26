@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-
-from api_client import api_url, get_status_report
+from api_client import get_status_report
 
 try:
     import plotly.express as px
@@ -13,7 +12,6 @@ try:
 except ImportError:
     HAS_PLOTLY = False
 
-from api_client import api_url, get_status_report
 
 
 st.set_page_config(page_title="Statut — Precite", page_icon="📊", layout="wide")
@@ -127,7 +125,7 @@ if len(df_year):
 
 
 # === Note methodologique ===
-with st.expander("ℹ️ À propos de ces statistiques"):
+with st.expander("i À propos de ces statistiques"):
     st.markdown("""
     **Statut MEDLINE** : PubMed indexe chaque article avec un statut reflétant son niveau d'indexation :
 

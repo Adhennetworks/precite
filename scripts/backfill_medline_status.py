@@ -9,6 +9,7 @@ Usage :
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gzip
 import io
 import re
@@ -43,7 +44,7 @@ def _count_pages(pages_raw: str | None) -> int | None:
         return None
     total = 0
     for match in re.finditer(r"([A-Za-z]*)(\d+)(?:\s*-\s*([A-Za-z]*)(\d+))?", pages_raw):
-        prefix, start, _, end = match.groups()
+        _prefix, start, _, end = match.groups()
         start_n = int(start)
         if end:
             end_n = int(end)
@@ -134,10 +135,8 @@ def download_and_parse(
                 _time.sleep(wait)
         if content is None:
             raise last_exc  # type: ignore[misc]
-        try:
+        with contextlib.suppress(Exception):
             cache_file.write_bytes(content)
-        except Exception:
-            pass
 
     return parse_xml_gz(content)
 

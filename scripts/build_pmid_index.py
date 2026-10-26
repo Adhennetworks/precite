@@ -56,7 +56,7 @@ def main() -> int:
     print("Tri par PMID...")
 
     # Trier par PMID pour accélérer les lookups via binary search
-    combined = sorted(zip(all_pmids, all_decades), key=lambda x: x[0])
+    combined = sorted(zip(all_pmids, all_decades, strict=False), key=lambda x: x[0])
     pmids_sorted = [c[0] for c in combined]
     decades_sorted = [c[1] for c in combined]
 

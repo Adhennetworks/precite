@@ -1,0 +1,34 @@
+name: Notify on Failure
+
+on:
+  workflow_run:
+    workflows: ["Ingest PubMed", "Drift Monitoring", "Data Quality"]
+    types: [completed]
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ Precite : ${{ github.event.workflow_run.name }} a échoué"
+          to: ${{ secrets.MAIL_TO }}
+          from: Precite Alerts
+          body: |
+            Le workflow **${{ github.event.workflow_run.name }}** a échoué.
+
+            - Branche : ${{ github.event.workflow_run.head_branch }}
+            - Commit : ${{ github.event.workflow_run.head_sha }}
+            - Lien : ${{ github.event.workflow_run.html_url }}
+
+            ⚠️ Actions à vérifier :
+            - Si l'échec vient de `verify_no_dupes.py` : des doublons ont été détectés. Lance `python scripts/clean_hf_chunks.py` puis relance le workflow.
+            - Si l'échec vient de `drift_monitor.py` : un drift a été détecté. Consulte le rapport `drift_report.json` pour identifier les features concernées.
+            - Si l'échec vient de `quality.yml` : des invariants de données sont violés. Vérifie les logs du test qui a échoué.

@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import HfApi, hf_hub_download
-
 
 REPO = "preciteproject/precite-data"
 TARGET_ROWS_PER_CHUNK = 1_000_000

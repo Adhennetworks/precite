@@ -153,7 +153,7 @@ def main() -> int:
 
     size_mb = OUTPUT.stat().st_size / 1024 / 1024
     print()
-    print(f"=== Termine ===")
+    print("=== Termine ===")
     print(f"ISSN distincts : {len(mapping):,}")
     print(f"Taille         : {size_mb:.1f} MB")
     print(f"Fichier        : {OUTPUT}")

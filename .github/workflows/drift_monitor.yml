@@ -1,0 +1,44 @@
+name: Drift Monitoring
+
+on:
+  schedule:
+    # Tous les jours à 6h UTC (après l'ingestion de 5h)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[train]"
+          pip install huggingface_hub duckdb evidently
+
+      - name: Download features from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/download_from_hf.py \
+            --source preciteproject/precite-data \
+            --target data
+
+      - name: Run drift detection
+        run: python scripts/drift_monitor.py --days 7
+
+      - name: Upload drift report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: data/drift_report.json

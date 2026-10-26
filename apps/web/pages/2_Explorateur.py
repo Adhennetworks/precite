@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-
 from api_client import search_papers
+
 
 @st.cache_data(ttl=300)
 def cached_search(year_min, year_max, limit):

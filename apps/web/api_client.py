@@ -51,7 +51,7 @@ def search_papers(year_min: int | None = None, year_max: int | None = None, limi
     except httpx.TimeoutException:
         raise RuntimeError(
             "Recherche trop lente. Reduis la plage d'années ou la limite."
-        )
+        ) from None
     
 def list_models(model_type: str | None = None) -> dict[str, Any]:
     params = {}

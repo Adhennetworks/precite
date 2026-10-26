@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow as pa
@@ -32,7 +32,6 @@ from precite.ingest.ftp import stream_file
 from precite.ingest.parser import iter_articles
 from precite.ingest.pipeline import ingest_many
 from precite.utils.logging import configure_logging
-
 
 UPDATE_URL = "https://ftp.ncbi.nlm.nih.gov/pubmed/updatefiles"
 STATE_FILE = ROOT / "data" / ".state" / "pubmed_state.json"
@@ -81,7 +80,7 @@ def extract_status_updates(files: list[str]) -> int:
     print()
     print("Extraction des status MEDLINE...")
     fields_cfg = load_field_config()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     rows: list[dict] = []
     t0 = time.time()
@@ -117,7 +116,7 @@ def extract_status_updates(files: list[str]) -> int:
         existing = pq.read_table(UPDATES_FILE)
         # Verifie le schema
         if existing.schema != STATUS_UPDATES_SCHEMA:
-            print(f"  [WARN] schema existant different, on ecrase")
+            print("  [WARN] schema existant different, on ecrase")
         else:
             new_table = pa.concat_tables([existing, new_table])
 

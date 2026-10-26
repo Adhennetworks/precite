@@ -15,7 +15,6 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, create_repo
 
-
 # Regles de mapping : prefixe dossier local -> nom sur HF
 # (par defaut : on garde le chemin relatif)
 SKIP_PREFIXES = {

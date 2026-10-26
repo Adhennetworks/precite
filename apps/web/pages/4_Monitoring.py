@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import duckdb
-import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Monitoring — Precite", page_icon="📊", layout="wide")

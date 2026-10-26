@@ -146,6 +146,16 @@ jobs:
         if: steps.check.outputs.update == 'true'
         run: python scripts/verify_no_dupes.py
 
+      - name: Explain potential failures
+        if: failure()
+        run: |
+          echo "::error::Le workflow d'ingestion a échoué."
+          echo "::error::Causes possibles :"
+          echo "::error::  - Des doublons ont été détectés (verify_no_dupes.py)."
+          echo "::error::  - Le merge a échoué (merge_enriched.py)."
+          echo "::error::  - L'upload HF a échoué."
+          echo "::error::Consulte les logs de l'étape précédente pour identifier la cause."
+          
       - name: Upload features + predictions to HF
         if: steps.check.outputs.update == 'true'
         env:

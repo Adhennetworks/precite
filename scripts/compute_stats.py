@@ -93,7 +93,7 @@ def main() -> int:
     ]
 
     # Predictions
-    preds_glob = ROOT / "data" / "predictions" / "family=*" / "*.parquet"
+    ROOT / "data" / "predictions" / "family=*" / "*.parquet"
     pred_files = list((ROOT / "data" / "predictions").rglob("*.parquet"))
     if pred_files:
         preds_sql = ", ".join(f"'{f.as_posix()}'" for f in pred_files)

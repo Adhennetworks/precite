@@ -22,7 +22,6 @@ from pathlib import Path
 
 import httpx
 
-
 UPDATE_URL = "https://ftp.ncbi.nlm.nih.gov/pubmed/updatefiles/"
 STATE_DIR = Path("data/.state")
 STATE_FILE = STATE_DIR / "pubmed_state.json"

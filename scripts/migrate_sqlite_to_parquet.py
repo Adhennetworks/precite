@@ -14,14 +14,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import sqlite3
+from datetime import UTC, datetime
+
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datetime import datetime, timezone
 
-from precite.datasets.loader import FEATURE_COLUMNS
 from precite.storage.parquet_store import (
     PAPERS_SCHEMA,
-    PREDICTIONS_SCHEMA,
     ParquetStore,
 )
 from precite.utils.logging import configure_logging
@@ -32,9 +31,7 @@ CLEAN_BATCHES = ["full-2026-09-lm", "full-2026-09-nb"]
 
 def migrate_papers(store: ParquetStore, sqlite_path: Path) -> int:
     """Migration rapide : accumule tout en memoire, ecrit une seule fois par decennie."""
-    import pyarrow.parquet as pq
     from collections import defaultdict
-    import pyarrow as pa
 
     print("Migration papers depuis data/final/...", flush=True)
 
@@ -93,7 +90,7 @@ def migrate_papers(store: ParquetStore, sqlite_path: Path) -> int:
             r["pmid"] = str(r.get("pmid", ""))
             r["year"] = year
             r["batch_id"] = str(r.get("batch_id") or "migration")
-            r["ingested_at"] = str(r.get("ingested_at") or datetime.now(timezone.utc).isoformat())
+            r["ingested_at"] = str(r.get("ingested_at") or datetime.now(UTC).isoformat())
 
             by_decade[decade].append(r)
 
@@ -215,7 +212,7 @@ def main() -> int:
         return 1
 
     size_gb = sqlite_path.stat().st_size / 1024**3
-    print(f"=== Migration SQLite -> Parquet ===")
+    print("=== Migration SQLite -> Parquet ===")
     print(f"Source : {sqlite_path} ({size_gb:.1f} GB)")
     print()
 

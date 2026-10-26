@@ -34,9 +34,6 @@ from precite.enrich.multi_horizon import load_multi_horizon_cache
 from precite.storage.parquet_store import ParquetStore
 from precite.utils.logging import configure_logging
 
-import mlflow
-
-
 TRANSFORMS = {
     "lm": {"forward": np.arcsinh, "name": "arsinh"},
     "nb": {"forward": np.log1p,  "name": "log1p"},
@@ -63,9 +60,9 @@ def train_one_horizon(
 
     train_df = df[df[col_h].notna() & df[col_3].notna()].copy()
     if "is_research_article" in train_df.columns:
-        train_df = train_df[train_df["is_research_article"] == True]
+        train_df = train_df[train_df["is_research_article"]]
     if "has_enough_history" in train_df.columns:
-        train_df = train_df[train_df["has_enough_history"] == True]
+        train_df = train_df[train_df["has_enough_history"]]
 
     if len(train_df) < 100_000:
         print(f"  [{family}/{horizon}y] trop peu ({len(train_df):,})", flush=True)
@@ -207,7 +204,7 @@ def main() -> int:
 
     for h in [1, 2, 3]:
         df[f"citations_{h}y"] = df["pmid"].astype(int).map(
-            lambda p: mh_cache.get(p, {}).get(h, 0)
+            lambda p, h=h: mh_cache.get(p, {}).get(h, 0)
         )
     print()
 

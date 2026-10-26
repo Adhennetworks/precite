@@ -45,7 +45,7 @@ def compact_family(family_dir: Path) -> dict:
 
     # Charger TOUS les fichiers
     files_list = "[" + ",".join(f"'{f}'" for f in all_files) + "]"
-    print(f"  Chargement dans DuckDB...", flush=True)
+    print("  Chargement dans DuckDB...", flush=True)
 
     try:
         con.execute(f"""
@@ -62,7 +62,7 @@ def compact_family(family_dir: Path) -> dict:
     print(f"  {n_total:,} predictions chargees")
 
     # Deduplication
-    print(f"  Deduplication...", flush=True)
+    print("  Deduplication...", flush=True)
     con.execute("""
         CREATE TABLE dedup AS
         SELECT pmid, model_name, model_version, predicted_citations,
@@ -83,7 +83,7 @@ def compact_family(family_dir: Path) -> dict:
           f"({n_total - n_dedup:,} doublons supprimes)")
 
     # Supprimer les anciens fichiers
-    print(f"  Suppression des fichiers sources...", flush=True)
+    print("  Suppression des fichiers sources...", flush=True)
     for f in all_files:
         f.unlink()
 

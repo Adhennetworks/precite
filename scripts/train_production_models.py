@@ -7,7 +7,6 @@ Usage :
     python scripts/train_production_models.py --all
     python scripts/train_production_models.py --model-type lm --force
 """
-
 from __future__ import annotations
 
 import argparse
@@ -15,9 +14,6 @@ import hashlib
 import sys
 import time
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
 
 import mlflow
 import numpy as np
@@ -40,6 +36,9 @@ from precite.utils.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
 
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
 
 MODELS = {
     "lm": {
@@ -69,8 +68,8 @@ def train_production(
     snapshot_year: int,
     store: ParquetStore,
 ) -> dict | None:
-    from precite.training.trainer import _filter_for_training, _robust_metrics
     from precite.evaluation.metrics import compute_metrics
+    from precite.training.trainer import _filter_for_training, _robust_metrics
 
     spec = MODELS[model_type]
     target = spec["target"]
@@ -234,7 +233,7 @@ def main() -> int:
     train_year_max = latest
     train_year_min = latest - args.window + 1
 
-    print(f"=== Entrainement production ===")
+    print("=== Entrainement production ===")
     print(f"Snapshot       : {args.snapshot_year}")
     print(f"Horizon        : {args.horizon} ans")
     print(f"Derniere cible : {latest}")
@@ -247,9 +246,9 @@ def main() -> int:
     print(f"  {len(df):,} articles")
 
     if "is_research_article" in df.columns:
-        df = df[df["is_research_article"] == True].copy()
+        df = df[df["is_research_article"]].copy()
     if "has_enough_history" in df.columns:
-        df = df[df["has_enough_history"] == True].copy()
+        df = df[df["has_enough_history"]].copy()
     print(f"  Apres filtres : {len(df):,} articles")
     print()
 

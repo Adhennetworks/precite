@@ -4,7 +4,6 @@ Usage :
     python scripts/train_yearly_models.py --model-type lm --start 1985 --end 2023
     python scripts/train_yearly_models.py --model-type nb --start 1985 --end 2023
 """
-
 from __future__ import annotations
 
 import argparse
@@ -12,9 +11,6 @@ import hashlib
 import sys
 import time
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
 
 import mlflow
 import numpy as np
@@ -36,6 +32,11 @@ from precite.training.mlflow_utils import (
 from precite.utils.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
+
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
 
 
 MODELS = {
@@ -73,8 +74,8 @@ def train_one_year(
     model_type: str,
     store: ParquetStore,
 ) -> dict | None:
-    from precite.training.trainer import _filter_for_training, _robust_metrics
     from precite.evaluation.metrics import compute_metrics
+    from precite.training.trainer import _filter_for_training, _robust_metrics
 
     spec = MODELS[model_type]
     target = spec["target"]
@@ -240,12 +241,12 @@ def main() -> int:
 
     if "is_research_article" in df.columns:
         n0 = len(df)
-        df = df[df["is_research_article"] == True].copy()
+        df = df[df["is_research_article"]].copy()
         print(f"  Apres filtre research : {len(df):,} ({len(df)/n0*100:.1f}%)", flush=True)
 
     if "has_enough_history" in df.columns:
         n0 = len(df)
-        df = df[df["has_enough_history"] == True].copy()
+        df = df[df["has_enough_history"]].copy()
         print(f"  Apres filtre history  : {len(df):,}", flush=True)
 
     df = df[df[target].notna()].copy()

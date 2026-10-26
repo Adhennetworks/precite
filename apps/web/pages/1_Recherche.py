@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-
 from api_client import get_paper
-
 
 # Mapping status MEDLINE -> (icone, libelle, couleur)
 MEDLINE_BADGES = {

@@ -47,8 +47,8 @@ def main() -> int:
     source = args.source.resolve()
 
     # Creer un dossier temporaire
-    import tempfile
     import shutil
+    import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)

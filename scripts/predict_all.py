@@ -15,14 +15,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import contextlib
+import os
+
 import psutil
 import pyarrow as pa
 import pyarrow.parquet as pq
-import os
 
 from precite.predict.batch import predict_batch
 from precite.utils.logging import configure_logging
-
 
 MAX_ROWS_PER_BATCH = 200_000  # limite memoire
 
@@ -57,10 +58,8 @@ def load_existing_pmids(store_root: Path, family: str) -> set[int]:
     for f in files:
         t = pq.read_table(f, columns=["pmid"])
         for p in t.column("pmid").to_pylist():
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 pmids.add(int(p))
-            except (ValueError, TypeError):
-                pass
     print(f"  {len(pmids):,} PMIDs en {time.time() - t0:.1f}s  (RAM: {ram_mb():.0f} MB)")
     return pmids
 
@@ -92,7 +91,7 @@ def main() -> int:
     if args.chunk_limit:
         files = files[:args.chunk_limit]
 
-    print(f"=== Prediction batch ===")
+    print("=== Prediction batch ===")
     print(f"Source      : {args.source}")
     print(f"Batch ID    : {args.batch_id}")
     print(f"Famille     : {args.model_family}")
@@ -118,7 +117,6 @@ def main() -> int:
         try:
             # Mode --only-new : lit par batches, filtre, ecrit des sous-fichiers
             if args.only_new and existing_pmids:
-                n_written = 0
                 sub_idx = 0
                 sub_rows = 0
                 sub_buffer: list = []
@@ -126,7 +124,7 @@ def main() -> int:
                 pf = pq.ParquetFile(f)
                 for batch in pf.iter_batches(batch_size=50_000):
                     df = batch.to_pandas()
-                    before = len(df)
+                    len(df)
                     df = df[~df["pmid"].astype("int64").isin(existing_pmids)]
                     if len(df) == 0:
                         continue
@@ -191,7 +189,7 @@ def main() -> int:
                     tmp_file.unlink()
 
                 if sub_idx == 0:
-                    print(f"    -> 0 nouveaux", flush=True)
+                    print("    -> 0 nouveaux", flush=True)
 
             else:
                 summary = predict_batch(

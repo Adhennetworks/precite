@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import csv
 import io
 import pickle
@@ -42,8 +43,10 @@ def load_research_map(icite_zip: Path) -> dict[int, bool]:
     """Charge ou construit {pmid: is_research_article}."""
     cache = ROOT / "data" / "icite" / "research_map.pkl"
     if cache.exists():
-        print(f"  Cache trouve : {cache} ({cache.stat().st_size // 1024 // 1024} MB)")
-        return cache
+        size_mb = cache.stat().st_size // 1024 // 1024
+        print(f"  Cache trouve : {cache} ({size_mb} MB)")
+        with open(cache, "rb") as f:
+            return pickle.load(f)
 
     print(f"  Lecture de {icite_zip.name} (12 GB, ~5 min)...")
     research_map: dict[int, bool] = {}
@@ -55,26 +58,22 @@ def load_research_map(icite_zip: Path) -> dict[int, bool]:
         with z.open(candidates[0]) as f:
             text = io.TextIOWrapper(f, encoding="utf-8", newline="")
             reader = csv.DictReader(text)
-            n = 0
-            for row in reader:
+            for n, row in enumerate(reader, start=1):
                 pmid = row.get("pmid")
                 flag = row.get("is_research_article")
                 if pmid and flag is not None:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         research_map[int(pmid)] = flag.lower() in ("true", "1", "yes")
-                    except (ValueError, TypeError):
-                        pass
-                n += 1
                 if n % 5_000_000 == 0:
                     print(f"    {n:,} lignes lues...", flush=True)
 
-    print(f"  Total : {len(research_map):,} entrees")
-
+    # Sauvegarde du cache (absent dans ton code actuel → il est recalculé à chaque run !)
+    print(f"  Ecriture du cache : {cache}")
     cache.parent.mkdir(parents=True, exist_ok=True)
     with open(cache, "wb") as f:
         pickle.dump(research_map, f, protocol=pickle.HIGHEST_PROTOCOL)
-    print(f"  Cache ecrit : {cache} ({cache.stat().st_size // 1024 // 1024} MB)")
-    return cache
+
+    return research_map
 
 
 def process_one(features_parquet: str) -> dict:

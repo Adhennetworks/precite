@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import mlflow
 import numpy as np
 import pandas as pd
 
@@ -22,8 +23,6 @@ from precite.datasets.loader import FEATURE_COLUMNS
 from precite.enrich.multi_horizon import load_multi_horizon_cache
 from precite.storage.db import PredictionsDB
 from precite.utils.logging import configure_logging
-
-import mlflow
 
 
 def load_dle_model(horizon: int, snapshot_year: int) -> dict | None:
@@ -111,7 +110,7 @@ def estimate_performance_by_horizon(
 
         # Joindre les citations_Hy
         eligible[f"citations_{h}y"] = eligible["pmid"].astype(int).map(
-            lambda p: mh_cache.get(p, {}).get(h, 0)
+            lambda p, h=h: mh_cache.get(p, {}).get(h, 0)
         )
 
         if len(eligible) == 0:
@@ -138,7 +137,7 @@ def estimate_performance_by_horizon(
         by_year = eligible.groupby("year")["estimated_mae"].agg(["count", "mean"])
 
         results[h] = {
-            "n_eligible": int(len(eligible)),
+            "n_eligible": len(eligible),
             "mae_estimated": mean_loss,
             "mae_median": median_loss,
             "by_year": by_year.to_dict("index"),
@@ -148,7 +147,7 @@ def estimate_performance_by_horizon(
         print(f"  Articles eligibles : {len(eligible):,}")
         print(f"  MAE estimee        : {mean_loss:.3f}")
         print(f"  MAE mediane        : {median_loss:.3f}")
-        print(f"  Par annee :")
+        print("  Par annee :")
         for year, stats in sorted(by_year.iterrows()):
             print(f"    {int(year)} : {int(stats['count']):>10,} articles, MAE={stats['mean']:.3f}")
 
@@ -166,7 +165,7 @@ def main() -> int:
 
     db = PredictionsDB(args.db)
 
-    print(f"=== Monitoring DLE ===")
+    print("=== Monitoring DLE ===")
     print(f"Batch      : {args.batch_id}")
     print(f"Snapshot   : {args.snapshot_year}")
     print()

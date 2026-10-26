@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import snapshot_download
 
 
 def main() -> int:

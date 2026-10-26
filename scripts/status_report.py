@@ -46,7 +46,7 @@ def main() -> int:
     for status, n in counter.most_common():
         label = status if status is not None else "NULL"
         pct = 100 * n / total
-        print(f"  {str(label):<25} {n:>12,}  ({pct:>6.2f}%)")
+        print(f"  {label!s:<25} {n:>12,}  ({pct:>6.2f}%)")
 
     print()
     recent_total = sum(year_counter.values())
@@ -54,7 +54,7 @@ def main() -> int:
     for status, n in year_counter.most_common():
         label = status if status is not None else "NULL"
         pct = 100 * n / recent_total
-        print(f"  {str(label):<25} {n:>12,}  ({pct:>6.2f}%)")
+        print(f"  {label!s:<25} {n:>12,}  ({pct:>6.2f}%)")
 
     return 0
 

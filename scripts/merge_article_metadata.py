@@ -15,10 +15,8 @@ import time
 from pathlib import Path
 
 import duckdb
-import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import HfApi, hf_hub_download
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "preciteproject/precite-data"
@@ -97,7 +95,7 @@ def main() -> int:
         if "n_pages" in chunk_cols:
             df_check = pq.read_table(p, columns=["n_pages"]).to_pandas()
             if df_check["n_pages"].notna().any():
-                print(f"  deja migre, skip", flush=True)
+                print("  deja migre, skip", flush=True)
                 continue
 
         keep_cols = [c for c in chunk_cols if c not in ("n_pages", "medline_status")]

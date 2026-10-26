@@ -68,7 +68,7 @@ def main() -> int:
 
     # Supprime le fichier updates (consolide)
     UPDATES.unlink()
-    print(f"Updates supprime")
+    print("Updates supprime")
 
     con.close()
     print("OK")
