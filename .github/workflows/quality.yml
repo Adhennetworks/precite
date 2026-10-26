@@ -1,16 +1,37 @@
 name: Data Quality
+
 on:
   schedule:
-    - cron: "0 4 * * 1"  # lundi 4h UTC
+    # Lundi 4h UTC
+    - cron: "0 4 * * 1"
   workflow_dispatch:
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
-      - run: pip install -e ".[dev]"
-      - run: python scripts/download_from_hf.py --source preciteproject/precite-data --target data
-        env: {HF_TOKEN: "${{ secrets.HF_TOKEN }}"}
-      - run: pytest tests/quality -v
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install huggingface_hub duckdb pyarrow
+
+      - name: Download data from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/download_from_hf.py \
+            --source preciteproject/precite-data \
+            --target data
+
+      - name: Run quality tests
+        run: pytest tests/quality -v
