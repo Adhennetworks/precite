@@ -40,7 +40,7 @@ def search_papers(year_min: int | None = None, year_max: int | None = None, limi
         params["year_min"] = year_min
     if year_max is not None:
         params["year_max"] = year_max
-    with httpx.Client(timeout=15.0) as c:
+    with httpx.Client(timeout=120.0) as c:
         return c.get(f"{api_url()}/papers", params=params).json()
 
 
