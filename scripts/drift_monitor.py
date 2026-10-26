@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -43,23 +42,20 @@ def load_reference_data(con: duckdb.DuckDBPyConnection, year: int = 2023) -> pd.
     return con.execute(query).fetchdf()
 
 
-def load_current_data(con: duckdb.DuckDBPyConnection, days: int = 7) -> pd.DataFrame:
-    """Charge les articles ingérés dans les N derniers jours."""
-    # On utilise ingested_at (timestamp ISO) pour filtrer
-    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+def load_current_data(con: duckdb.DuckDBPyConnection, current_year: int = 2026) -> pd.DataFrame:
+    """Charge un échantillon des articles les plus récents (par année)."""
     query = f"""
         SELECT {', '.join(CRITICAL_FEATURES)}
         FROM read_parquet('data/features/chunk-*.parquet')
-        WHERE ingested_at >= '{cutoff}'
-        LIMIT 10000
+        WHERE year = {current_year}
+        USING SAMPLE 10000 ROWS
     """
     return con.execute(query).fetchdf()
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reference-year", type=int, default=2023)
-    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--current-year", type=int, default=2026)
     args = parser.parse_args()
 
     con = duckdb.connect()
@@ -68,8 +64,8 @@ def main() -> int:
     reference = load_reference_data(con, args.reference_year)
     print(f"  {len(reference):,} articles de référence")
 
-    print(f"Chargement des données récentes ({args.days} derniers jours)...")
-    current = load_current_data(con, args.days)
+    print(f"Chargement des données récentes (année {args.current_year})...")
+    current = load_current_data(con, args.current_year)
     if len(current) == 0:
         print("Aucune donnée récente. Drift non calculable.")
         return 0

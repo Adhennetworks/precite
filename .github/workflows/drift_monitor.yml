@@ -37,7 +37,7 @@ jobs:
             --target data
 
       - name: Run drift detection
-        run: python scripts/drift_monitor.py --days 7
+        run: python scripts/drift_monitor.py --reference-year 2023 --current-year 2026
 
       - name: Upload drift report as artifact
         if: always()
