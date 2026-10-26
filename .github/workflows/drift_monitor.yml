@@ -2,7 +2,6 @@ name: Drift Monitoring
 
 on:
   schedule:
-    # Tous les jours à 6h UTC (après l'ingestion de 5h)
     - cron: "0 6 * * *"
   workflow_dispatch:
 
@@ -19,13 +18,18 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
+      - name: Install minimal dependencies (isolated)
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[train]"
-          pip install huggingface_hub duckdb
-          pip install "evidently==0.7.23"
-          
+          # Pas de pip install -e ".[train]" — on isole les deps de drift
+          pip install duckdb pyarrow pandas huggingface_hub
+          pip install --no-cache-dir "evidently==0.7.23"
+
+      - name: Check versions
+        run: |
+          python -c "import pandas; print('pandas:', pandas.__version__)"
+          python -c "import evidently; print('evidently:', evidently.__version__)"
+
       - name: Download features from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
