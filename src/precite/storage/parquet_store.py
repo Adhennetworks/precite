@@ -117,7 +117,7 @@ class ParquetStore:
 
         self._con = duckdb.connect()
         import threading
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         # Caches HTTP + parquet pour accelerer les requetes distantes
         try:
             self._execute("SET enable_http_metadata_cache=true")
