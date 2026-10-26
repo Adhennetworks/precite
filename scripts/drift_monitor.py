@@ -32,23 +32,21 @@ CRITICAL_FEATURES = [
 
 
 def load_reference_data(con: duckdb.DuckDBPyConnection, year: int = 2023) -> pd.DataFrame:
-    """Charge un échantillon d'articles de l'année de référence."""
     query = f"""
         SELECT {', '.join(CRITICAL_FEATURES)}
         FROM read_parquet('data/features/chunk-*.parquet')
         WHERE year = {year}
-        USING SAMPLE 10000 ROWS
+        LIMIT 10000
     """
     return con.execute(query).fetchdf()
 
 
 def load_current_data(con: duckdb.DuckDBPyConnection, current_year: int = 2026) -> pd.DataFrame:
-    """Charge un échantillon des articles les plus récents (par année)."""
     query = f"""
         SELECT {', '.join(CRITICAL_FEATURES)}
         FROM read_parquet('data/features/chunk-*.parquet')
         WHERE year = {current_year}
-        USING SAMPLE 10000 ROWS
+        LIMIT 10000
     """
     return con.execute(query).fetchdf()
 
