@@ -18,12 +18,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install minimal dependencies (isolated)
+      - name: Install isolated dependencies (pandas 2 + evidently)
         run: |
           python -m pip install --upgrade pip
-          # Pas de pip install -e ".[train]" — on isole les deps de drift
-          pip install duckdb pyarrow pandas huggingface_hub
-          pip install --no-cache-dir "evidently==0.7.23"
+          pip install --no-cache-dir "pandas>=2.2,<3.0" "evidently==0.7.23" duckdb pyarrow huggingface_hub
 
       - name: Check versions
         run: |
