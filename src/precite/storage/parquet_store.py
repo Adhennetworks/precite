@@ -688,33 +688,63 @@ class ParquetStore:
         return paper
 
     def search_papers(
-        self,
-        *,
-        year_min: int | None = None,
-        year_max: int | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        papers_glob = self.papers_dir_glob()
-        conditions = []
-        params = []
-        if year_min is not None:
-            conditions.append("year >= ?")
-            params.append(year_min)
-        if year_max is not None:
-            conditions.append("year <= ?")
-            params.append(year_max)
+    self,
+    *,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Recherche rapide : ne scanne que les decades demandees. Au lieu de scanner les 23 fichiers papers/ (~200 MB), on ne charge  que les 1-3 fichiers correspondant a la plage d'annees. """
+    # 1. Determine les decades a scanner
+    if year_min is not None and year_max is not None:
+        decade_min = (year_min // 10) * 10
+        decade_max = (year_max // 10) * 10
+        decades = list(range(decade_min, decade_max + 1, 10))
+    elif year_min is not None:
+        decades = list(range((year_min // 10) * 10, 2030, 10))
+    elif year_max is not None:
+        decades = list(range(1800, (year_max // 10) * 10 + 1, 10))
+    else:
+        # Pas de filtre : 3 dernieres decades par defaut
+        decades = [2000, 2010, 2020]
 
-        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    # 2. Construit la liste des fichiers a lire
+    files = []
+    for d in decades:
+        if self.remote:
+            files.append(f"{self.HF_BASE}/papers/decade={d:04d}.parquet")
+        else:
+            f = self.papers_dir / f"decade={d:04d}.parquet"
+            if f.exists():
+                files.append(f.as_posix())
 
+    if not files:
+        return []
+
+    urls_sql = ", ".join(f"'{u}'" for u in files)
+
+    # 3. Construit le filtre WHERE
+    conditions = []
+    if year_min is not None:
+        conditions.append(f"year >= {year_min}")
+    if year_max is not None:
+        conditions.append(f"year <= {year_max}")
+
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    # 4. Requete
+    try:
         result = self._con.execute(f"""
-            SELECT pmid, year, batch_id, ingested_at,
-                   citations_3y, weighted_citations_3y
-            FROM {papers_glob}
+            SELECT pmid, year, citations_3y, weighted_citations_3y
+            FROM read_parquet([{urls_sql}], union_by_name=true)
             {where}
-            LIMIT ?
-        """, [*params, limit]).fetchdf()
-
+            ORDER BY year DESC
+            LIMIT {limit}
+        """).fetchdf()
         return result.to_dict("records")
+    except Exception as exc:
+        log.warning("search_papers.failed", error=str(exc))
+        return []
 
     # ─── STATS (avec cache) ─────────────────────────────────────────────
 
