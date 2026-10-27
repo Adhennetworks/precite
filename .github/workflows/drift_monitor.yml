@@ -36,21 +36,27 @@ jobs:
             --source preciteproject/precite-data \
             --target data
 
-      - name: Run drift detection
-        run: python scripts/drift_monitor.py --reference-year 2022 --current-year 2026
+      - name: Run drift detection (vs training sample)
+        env:
+          DRIFT_SHARE_WARN: "0.7"
+          DRIFT_SHARE_CRIT: "0.9"
+        run: python scripts/drift_monitor.py
+
       - name: Upload drift report as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: drift-report
           path: data/drift_report.json
-          if-no-files-found: error
+          if-no-files-found: warn
+
       - name: Upload drift report to HF
         if: always()
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python -c "
+          if [ -f data/drift_report.json ]; then
+            python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
@@ -61,5 +67,8 @@ jobs:
               repo_type='dataset',
               token=os.environ['HF_TOKEN'],
           )
-          print('Drift report uploaded')
-          "          
+          print('Drift report uploaded to HF')
+          "
+          else
+            echo "::warning::Pas de rapport à uploader"
+          fi
