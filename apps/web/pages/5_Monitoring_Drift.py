@@ -87,9 +87,18 @@ for m in metrics:
         config = m.get("config", {})
         column = config.get("column", "?")
         value = m.get("value", {})
-        drift_score = value.get("drift_score", value.get("score", None))
-        drift_detected = value.get("drift_detected", None)
 
+        # value peut etre un dict (format standard) ou un float (format simplifie)
+        if isinstance(value, dict):
+            drift_score = value.get("drift_score", value.get("score", None))
+            drift_detected = value.get("drift_detected", None)
+        elif isinstance(value, (int, float)):
+            drift_score = float(value)
+            drift_detected = drift_score > 0.1  # seuil Evidently par defaut
+        else:
+            drift_score = None
+            drift_detected = None
+            
         feature_rows.append({
             "Feature": column,
             "Score de drift": round(drift_score, 4) if drift_score is not None else "—",
