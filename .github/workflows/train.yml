@@ -1,8 +1,8 @@
 name: Annual Retrain
 
 on:
-  # 1er juillet de chaque annee a 3h UTC
   schedule:
+    # 1er juillet de chaque année à 3h UTC
     - cron: "0 3 1 7 *"
   workflow_dispatch:
 
@@ -10,6 +10,9 @@ jobs:
   retrain:
     runs-on: ubuntu-latest
     timeout-minutes: 500
+
+    env:
+      MLFLOW_ALLOW_FILE_STORE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -25,26 +28,57 @@ jobs:
           pip install -e ".[train]"
           pip install huggingface_hub duckdb
 
-      - name: Download latest features from HF
+      - name: Compute current year
+        id: year
+        run: |
+          echo "current=$(date +%Y)" >> $GITHUB_OUTPUT
+
+      - name: Download latest data from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python scripts/download_from_hf.py \
-            --source precite/features \
-            --target data/final
+            --source preciteproject/precite-data \
+            --target data
 
-      - name: Retrain all models (LM + NB + DLE)
+      - name: Download MLflow models from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          PRECITE_MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
-          python scripts/train_yearly_models.py --model-type lm --start 1985 --end 2025 --window 5
-          python scripts/train_yearly_models.py --model-type nb --start 1985 --end 2025 --window 5
+          python -c "
+          from huggingface_hub import snapshot_download
+          import os
+          snapshot_download(
+              'preciteproject/precite-models',
+              repo_type='model',
+              local_dir='.',
+              token=os.environ['HF_TOKEN'],
+          )
+          "
+
+      - name: Retrain yearly models (LM + NB)
+        run: |
+          echo "=== Training yearly models up to ${{ steps.year.outputs.current }} ==="
+          python scripts/train_yearly_models.py \
+            --model-type lm \
+            --start 1985 \
+            --end ${{ steps.year.outputs.current }}
+          python scripts/train_yearly_models.py \
+            --model-type nb \
+            --start 1985 \
+            --end ${{ steps.year.outputs.current }}
+
+      - name: Retrain production models
+        run: |
+          echo "=== Training production models (target complete = n-3) ==="
           python scripts/train_production_models.py --all
+
+      - name: Retrain DLE horizon models
+        run: |
           python scripts/train_dle_horizon.py --family lm --all
           python scripts/train_dle_horizon.py --family nb --all
 
-      - name: Run predictions on all articles
+      - name: Predict on all articles
         env:
           PRECITE_MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
@@ -56,16 +90,18 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python scripts/upload_to_hf.py --source data/predictions --target precite/predictions
+          python scripts/upload_to_hf.py \
+            --target preciteproject/precite-data \
+            --root data \
+            --skip-papers \
+            --skip-features
+
+      - name: Upload MLflow models to HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/upload_mlflow_to_hf.py
 
       - name: Notify success
         if: success()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: custom
-          custom_payload: |
-            {
-              "text": "Retrain annuel termine avec succes"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        run: echo "✅ Retrain annuel terminé"
