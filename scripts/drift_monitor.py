@@ -83,9 +83,25 @@ def main() -> int:
     result = report.run(eval_cur, eval_ref)
 
     # Sauvegarde du rapport pour le dashboard
-    report_path = Path("data/drift_report.json")
-    result.save_json(report_path)
-    print(f"Rapport sauvegardé : {report_path}")
+    report_path = Path.cwd() / "data" / "drift_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Avant save: exists={report_path.exists()}")
+    result.save_json(str(report_path))
+    print(f"Apres save: exists={report_path.exists()}, size={report_path.stat().st_size if report_path.exists() else 0}")
+
+    if not report_path.exists():
+        print("ERREUR: save_json n'a rien ecrit")
+        # Fallback : ecriture manuelle
+        import json
+        try:
+            report_path.write_text(
+                json.dumps(result.dict(), indent=2, default=str),
+                encoding="utf-8"
+            )
+            print(f"Fallback OK: exists={report_path.exists()}, size={report_path.stat().st_size}")
+        except Exception as exc:
+            print(f"Fallback echoue: {exc}")
+            return 1
 
     # Vérifier si un drift a été détecté
     drift_detected = False
