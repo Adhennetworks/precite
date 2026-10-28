@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from precite.api.deps import get_store
 from precite.api.schemas import (
@@ -39,7 +40,15 @@ def health() -> HealthResponse:
     )
 
 @router.get("/stats", response_model=StatsResponse)
-def stats(store: ParquetStore = Depends(get_store)) -> StatsResponse:
+async def stats(
+    request: Request,
+    store: ParquetStore = Depends(get_store),
+) -> StatsResponse:
+    if hasattr(request.app.state, "warmup_done"):
+        try:
+            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
+        except TimeoutError:
+            log.warning("warmup.timeout", route="stats")
     s = store.stats()
     return StatsResponse(**s)
 
@@ -80,7 +89,14 @@ def _get_paper_cached(pmid: str) -> dict | None:
 
 
 @router.get("/papers/{pmid}", response_model=PaperDetail)
-def get_paper(pmid: str) -> PaperDetail:
+async def get_paper(pmid: str, request: Request) -> PaperDetail:
+    # Attendre que le warmup soit fini (max 60s)
+    if hasattr(request.app.state, "warmup_done"):
+        try:
+            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
+        except TimeoutError:
+            log.warning("warmup.timeout", pmid=pmid)
+    
     paper = _get_paper_cached(str(pmid))
     # Extraire les features (tout sauf les metadonnees)
     meta_keys = {
@@ -117,12 +133,20 @@ def get_paper(pmid: str) -> PaperDetail:
 
 
 @router.get("/papers", response_model=PaperListResponse)
-def search_papers(
+async def search_papers(
+    request: Request,
     year_min: int | None = Query(None),
     year_max: int | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     store: ParquetStore = Depends(get_store),
 ) -> PaperListResponse:
+    # Attendre que le warmup soit fini (max 60s)
+    if hasattr(request.app.state, "warmup_done"):
+        try:
+            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
+        except TimeoutError:
+            log.warning("warmup.timeout", route="search_papers")
+    
     papers = store.search_papers(
         year_min=year_min,
         year_max=year_max,

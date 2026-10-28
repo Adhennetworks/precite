@@ -31,13 +31,25 @@ async def _warmup_task(app: FastAPI):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("api.startup", version=__version__)
-    # Lancer le warmup en arriere-plan SANS bloquer le demarrage
-    task = asyncio.create_task(_warmup_task(app))
+    app.state.warmup_done = asyncio.Event()
+    
+    async def warmup():
+        try:
+            from precite.api.deps import get_store
+            store = await asyncio.to_thread(get_store)
+            for pmid in ("19585584", "38509752"):
+                await asyncio.to_thread(store.get_paper, pmid)
+            log.info("api.warmup.done")
+        except Exception as exc:
+            log.warning("api.warmup.failed", error=str(exc))
+        finally:
+            app.state.warmup_done.set()
+    
+    task = asyncio.create_task(warmup())
     app.state.warmup_task = task
     yield
     if not task.done():
         task.cancel()
-    log.info("api.shutdown")
 
 
 def create_app() -> FastAPI:
