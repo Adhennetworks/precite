@@ -3,10 +3,15 @@
 Regle : chaque modele est entraine sur les N dernieres annees avec cible
 complete, sur l'ensemble des articles research + history.
 
+Un split train/test 80/20 est fait AVANT le fit. Le test set (out-of-sample)
+est sauvegarde dans data/reference_sets/production-{family}-{snapshot_year}.parquet
+pour servir de reference au DLE.
+
 Usage :
     python scripts/train_production_models.py --all
     python scripts/train_production_models.py --model-type lm --force
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,9 +20,13 @@ import sys
 import time
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
 import mlflow
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 from precite.datasets.loader import (
     FEATURE_COLUMNS,
@@ -36,9 +45,6 @@ from precite.utils.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
 
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
 
 MODELS = {
     "lm": {
@@ -68,8 +74,8 @@ def train_production(
     snapshot_year: int,
     store: ParquetStore,
 ) -> dict | None:
-    from precite.evaluation.metrics import compute_metrics
     from precite.training.trainer import _filter_for_training, _robust_metrics
+    from precite.evaluation.metrics import compute_metrics
 
     spec = MODELS[model_type]
     target = spec["target"]
@@ -84,11 +90,22 @@ def train_production(
         print(f"  Trop peu d'articles ({len(train_df):,})", flush=True)
         return None
 
-    data_hash = compute_data_hash(train_df)
-    sample_df = train_df.sample(n=min(1000, len(train_df)), random_state=42)
+    # Split train/test AVANT le fit (test set = out-of-sample pour le DLE)
+    train_split, test_split = train_test_split(
+        train_df,
+        test_size=0.2,
+        random_state=42,
+    )
+    print(
+        f"  Split train/test : {len(train_split):,} train / {len(test_split):,} test",
+        flush=True,
+    )
+
+    data_hash = compute_data_hash(train_split)
+    sample_df = train_split.sample(n=min(1000, len(train_split)), random_state=42)
 
     X_train, y_train = build_design_matrix(
-        train_df, features=FEATURE_COLUMNS, target=target
+        train_split, features=FEATURE_COLUMNS, target=target
     )
 
     print(f"  Fit {model_type.upper()} sur {len(X_train):,} articles...", flush=True)
@@ -129,6 +146,7 @@ def train_production(
                 "year_min": train_year_min,
                 "year_max": train_year_max,
                 "n_train": len(X_train),
+                "n_test": len(test_split),
                 "n_features": X_train.shape[1],
                 "data_hash": data_hash,
             })
@@ -142,13 +160,12 @@ def train_production(
             wrapper = PrecitePortableModel(**portable)
 
             from mlflow.models import infer_signature
-            sig = infer_signature(X_train, model.predict(X_train))
+            sig = infer_signature(X_train[:100], model.predict(X_train[:100]))
 
             mlflow.pyfunc.log_model(
-                artifact_path="model",
+                name="model",
                 python_model=wrapper,
                 signature=sig,
-                input_example=X_train.head(3),
             )
             mlflow.log_artifact(str(sample_path), artifact_path="data_sample")
 
@@ -181,6 +198,30 @@ def train_production(
             "role": "production",
         },
     )
+
+    # === Sauvegarde le test set out-of-sample pour le DLE ===
+    try:
+        X_test, y_test = build_design_matrix(
+            test_split, features=FEATURE_COLUMNS, target=target
+        )
+        y_pred_test = model.predict(X_test)
+
+        ref_df = test_split.copy()
+        ref_df["predicted_citations"] = y_pred_test
+        ref_df["target"] = y_test.values
+        ref_df["model_name"] = model_name
+        ref_df["model_version"] = str(mv.version)
+
+        ref_dir = ROOT / "data" / "reference_sets"
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        ref_path = ref_dir / f"production-{model_type}-{snapshot_year}.parquet"
+        ref_df.to_parquet(ref_path, compression="zstd", index=False)
+        print(
+            f"  Reference set sauvegarde : {ref_path} ({len(ref_df):,} lignes)",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"  WARNING: sauvegarde reference set echouee : {exc}", flush=True)
 
     r2 = float(train_m.get("r2", 0))
     spearman = float(train_m.get("spearman", 0))
@@ -233,7 +274,7 @@ def main() -> int:
     train_year_max = latest
     train_year_min = latest - args.window + 1
 
-    print("=== Entrainement production ===")
+    print(f"=== Entrainement production ===")
     print(f"Snapshot       : {args.snapshot_year}")
     print(f"Horizon        : {args.horizon} ans")
     print(f"Derniere cible : {latest}")
@@ -246,9 +287,9 @@ def main() -> int:
     print(f"  {len(df):,} articles")
 
     if "is_research_article" in df.columns:
-        df = df[df["is_research_article"]].copy()
+        df = df[df["is_research_article"] == True].copy()
     if "has_enough_history" in df.columns:
-        df = df[df["has_enough_history"]].copy()
+        df = df[df["has_enough_history"] == True].copy()
     print(f"  Apres filtres : {len(df):,} articles")
     print()
 
