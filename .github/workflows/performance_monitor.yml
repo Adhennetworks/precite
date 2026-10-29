@@ -1,0 +1,28 @@
+name: Performance Monitoring (CBPE)
+
+on:
+  schedule:
+    - cron: "0 7 * * *"  # 7h UTC, après le drift monitoring
+  workflow_dispatch:
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install nannyml duckdb pyarrow huggingface_hub pandas
+      - name: Download data
+        env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }
+        run: python scripts/download_from_hf.py --source preciteproject/precite-data --target data
+      - name: Run CBPE
+        run: python scripts/performance_monitor.py
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-estimate
+          path: data/performance_estimate.parquet

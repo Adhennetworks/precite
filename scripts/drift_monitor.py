@@ -6,6 +6,11 @@ l'échantillon d'entraînement du modèle production en cours.
 Le modèle production est entraîné sur [year_min, year_max] (cible complète = n-3).
 L'écart structurel entre year_max et l'année courante est attendu (~3-4 ans).
 
+Le rapport est loggé dans MLflow (expérience `precite-monitoring`) :
+  - Métriques : drift_share, n_drifted_features, gap_years
+  - Paramètres : model_name, train_year_min, train_year_max, current_year
+  - Artefact : drift_report.json
+
 Seuils configurables par variable d'environnement :
     DRIFT_SHARE_WARN=0.7    (warning si > 70% des features driftent)
     DRIFT_SHARE_CRIT=0.9    (critique si > 90%)
@@ -21,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
+import mlflow
 import pandas as pd
 
 try:
@@ -35,6 +41,11 @@ ROOT = Path(__file__).resolve().parent.parent
 CHUNKS_GLOB = str(ROOT / "data" / "features" / "chunk-*.parquet")
 REGISTRY_FILE = ROOT / "data" / "registry.parquet"
 REPORT_PATH = ROOT / "data" / "drift_report.json"
+
+MLFLOW_EXPERIMENT = "precite-monitoring"
+MLFLOW_TRACKING_URI = os.environ.get(
+    "MLFLOW_TRACKING_URI", f"sqlite:///{ROOT / 'mlflow.db'}"
+)
 
 CRITICAL_FEATURES = [
     "n_pages",
@@ -77,21 +88,30 @@ def get_production_model_info(con: duckdb.DuckDBPyConnection) -> dict | None:
 
 
 def load_training_sample(
-    con: duckdb.DuckDBPyConnection, year_min: int, year_max: int
+    con: duckdb.DuckDBPyConnection,
+    year_min: int,
+    year_max: int,
+    per_year: int = 20000,
 ) -> pd.DataFrame:
-    """Charge un échantillon des features d'entraînement."""
+    """Charge un échantillon stratifié par année (per_year par année)."""
     cols = ", ".join(CRITICAL_FEATURES)
-    query = f"""
-        SELECT {cols}
-        FROM read_parquet('{CHUNKS_GLOB}')
-        WHERE year >= {year_min} AND year <= {year_max}
-        USING SAMPLE 10000 ROWS (reservoir, 42)
-    """
-    return con.execute(query).fetchdf()
+    years = list(range(year_min, year_max + 1))
+
+    queries = []
+    for y in years:
+        queries.append(f"""
+            SELECT {cols}
+            FROM read_parquet('{CHUNKS_GLOB}')
+            WHERE year = {y}
+            USING SAMPLE {per_year} ROWS (reservoir, 42)
+        """)
+
+    full_query = " UNION ALL ".join(queries)
+    return con.execute(full_query).fetchdf()
 
 
 def load_new_data(
-    con: duckdb.DuckDBPyConnection, year: int
+    con: duckdb.DuckDBPyConnection, year: int, n: int = 100000
 ) -> pd.DataFrame:
     """Charge les features des nouvelles données."""
     cols = ", ".join(CRITICAL_FEATURES)
@@ -99,9 +119,65 @@ def load_new_data(
         SELECT {cols}
         FROM read_parquet('{CHUNKS_GLOB}')
         WHERE year = {year}
-        USING SAMPLE 10000 ROWS (reservoir, 42)
+        USING SAMPLE {n} ROWS (reservoir, 42)
     """
     return con.execute(query).fetchdf()
+
+
+def log_to_mlflow(summary: dict, report_path: Path) -> str | None:
+    """Logge le rapport dans MLflow. Retourne le run_id ou None si échec."""
+    try:
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(MLFLOW_EXPERIMENT)
+
+        run_name = (
+            f"drift-{summary['current_year']}-"
+            f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+        )
+
+        with mlflow.start_run(run_name=run_name) as run:
+            # Paramètres (contexte)
+            mlflow.log_params({
+                "model_name": summary["model_name"],
+                "model_type": summary["model_type"],
+                "train_year_min": summary["train_year_min"],
+                "train_year_max": summary["train_year_max"],
+                "current_year": summary["current_year"],
+                "gap_years": summary["gap_years"],
+            })
+
+            # Métriques (pour graphiques temporels dans MLflow UI)
+            mlflow.log_metrics({
+                "drift_share": summary["drift_share"],
+                "n_drifted_features": summary["n_drifted_features"],
+                "n_features_total": summary["n_features_total"],
+                "n_reference": summary["n_reference"],
+                "n_current": summary["n_current"],
+            })
+
+            # Métriques par feature (utile pour identifier LA feature qui dérive)
+            for col, info in summary["drift_by_column"].items():
+                safe_col = col.replace(" ", "_")
+                mlflow.log_metric(f"drift_score_{safe_col}", info["drift_score"])
+                mlflow.log_metric(
+                    f"drift_detected_{safe_col}", 1.0 if info["drift_detected"] else 0.0
+                )
+
+            # Tags (niveau d'alerte)
+            mlflow.set_tags({
+                "level": summary["level"],
+                "generated_at": summary["generated_at"],
+            })
+
+            # Artefact : rapport JSON complet
+            if report_path.exists():
+                mlflow.log_artifact(str(report_path), artifact_path="drift_reports")
+
+            return run.info.run_id
+
+    except Exception as exc:
+        print(f"ERREUR log MLflow : {exc}")
+        return None
 
 
 def main() -> int:
@@ -121,6 +197,11 @@ def main() -> int:
         "--drift-share-crit",
         type=float,
         default=float(os.environ.get("DRIFT_SHARE_CRIT", "0.9")),
+    )
+    parser.add_argument(
+        "--no-mlflow",
+        action="store_true",
+        help="Désactive le logging MLflow (utile en CI sans serveur MLflow)",
     )
     args = parser.parse_args()
 
@@ -242,6 +323,16 @@ def main() -> int:
     print(f"  Features driftées : {n_drifted}/{len(features)} ({drift_share * 100:.0f}%)")
     print(f"  Niveau            : {level}")
 
+    # 7. Log MLflow
+    if not args.no_mlflow:
+        run_id = log_to_mlflow(summary, REPORT_PATH)
+        if run_id:
+            print(f"  MLflow run_id     : {run_id}")
+            print(f"  MLflow UI         : mlflow ui --backend-store-uri {MLFLOW_TRACKING_URI}")
+        else:
+            print("  MLflow            : log échoué (voir logs ci-dessus)")
+
+    # 8. Sortie GitHub Actions
     if level == "CRITIQUE":
         print(f"::error::DRIFT CRITIQUE : {drift_share * 100:.0f}% des features")
         print(f"::error::Écart structurel : {gap} ans")
