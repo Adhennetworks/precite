@@ -1,28 +1,58 @@
-name: Performance Monitoring (CBPE)
+name: Performance Monitoring (DLE)
 
 on:
   schedule:
-    - cron: "0 7 * * *"  # 7h UTC, après le drift monitoring
+    - cron: "0 7 * * *"
   workflow_dispatch:
 
 jobs:
   performance:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
       - name: Install
-        run: pip install nannyml duckdb pyarrow huggingface_hub pandas
-      - name: Download data
-        env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }
+        run: |
+          pip install --upgrade pip
+          pip install "pandas>=2.2,<3.0" nannyml duckdb pyarrow huggingface_hub mlflow
+      - name: Download features from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python scripts/download_from_hf.py --source preciteproject/precite-data --target data
-      - name: Run CBPE
+      - name: Download MLflow store from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import snapshot_download
+          import os
+          snapshot_download('preciteproject/precite-models', repo_type='model', local_dir='.', token=os.environ['HF_TOKEN'])
+          "
+      - name: Run DLE
+        env:
+          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+          MLFLOW_ALLOW_FILE_STORE: "true"
         run: python scripts/performance_monitor.py
-      - name: Upload report
+      - name: Upload DLE results as artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: performance-estimate
-          path: data/performance_estimate.parquet
+          name: dle-results
+          path: data/dle_results.parquet
+          if-no-files-found: warn
+      - name: Upload MLflow store to HF
+        if: always()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi()
+          api.upload_file(path_or_fileobj='mlflow.db', path_in_repo='mlflow.db', repo_id='preciteproject/precite-models', repo_type='model', token=os.environ['HF_TOKEN'])
+          print('MLflow store uploaded')
+          "

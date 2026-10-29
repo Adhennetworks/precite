@@ -11,32 +11,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
-      - name: Install isolated dependencies
+      - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install --no-cache-dir "pandas>=2.2,<3.0" "evidently==0.7.23" duckdb pyarrow huggingface_hub mlflow
-
-      - name: Check versions
-        run: |
-          python -c "import pandas; print('pandas:', pandas.__version__)"
-          python -c "import evidently; print('evidently:', evidently.__version__)"
-          python -c "import mlflow; print('mlflow:', mlflow.__version__)"
-
+          pip install --upgrade pip
+          pip install --no-cache-dir "pandas>=2.2,<3.0" "evidently==0.7.23" duckdb pyarrow huggingface_hub mlflow scipy
       - name: Download features from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          python scripts/download_from_hf.py \
-            --source preciteproject/precite-data \
-            --target data
-
+        run: python scripts/download_from_hf.py --source preciteproject/precite-data --target data
       - name: Download MLflow store from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -44,14 +30,8 @@ jobs:
           python -c "
           from huggingface_hub import snapshot_download
           import os
-          snapshot_download(
-              'preciteproject/precite-models',
-              repo_type='model',
-              local_dir='.',
-              token=os.environ['HF_TOKEN'],
-          )
+          snapshot_download('preciteproject/precite-models', repo_type='model', local_dir='.', token=os.environ['HF_TOKEN'])
           "
-
       - name: Run drift detection
         env:
           MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
@@ -59,7 +39,6 @@ jobs:
           DRIFT_SHARE_WARN: "0.7"
           DRIFT_SHARE_CRIT: "0.9"
         run: python scripts/drift_monitor.py
-
       - name: Upload drift report as artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,8 +46,7 @@ jobs:
           name: drift-report
           path: data/drift_report.json
           if-no-files-found: warn
-
-      - name: Upload updated MLflow store to HF
+      - name: Upload MLflow store to HF
         if: always()
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -77,12 +55,6 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          api.upload_file(
-              path_or_fileobj='mlflow.db',
-              path_in_repo='mlflow.db',
-              repo_id='preciteproject/precite-models',
-              repo_type='model',
-              token=os.environ['HF_TOKEN'],
-          )
-          print('MLflow store uploaded to HF')
+          api.upload_file(path_or_fileobj='mlflow.db', path_in_repo='mlflow.db', repo_id='preciteproject/precite-models', repo_type='model', token=os.environ['HF_TOKEN'])
+          print('MLflow store uploaded')
           "
