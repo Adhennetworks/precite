@@ -18,7 +18,7 @@ jobs:
       - name: Install
         run: |
           pip install --upgrade pip
-          pip install "pandas>=2.2,<3.0" nannyml duckdb pyarrow huggingface_hub mlflow
+          pip install "pandas>=2.2,<3.0" nannyml duckdb pyarrow huggingface_hub "mlflow==3.17.1" statsmodels
       - name: Download features from HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -32,11 +32,17 @@ jobs:
           import os
           snapshot_download('preciteproject/precite-models', repo_type='model', local_dir='.', token=os.environ['HF_TOKEN'])
           "
-      - name: Run DLE
+      - name: Run DLE (LM)
         env:
           MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
           MLFLOW_ALLOW_FILE_STORE: "true"
-        run: python scripts/performance_monitor.py
+        run: python scripts/performance_monitor.py --family lm
+
+      - name: Run DLE (NB)
+        env:
+          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+          MLFLOW_ALLOW_FILE_STORE: "true"
+        run: python scripts/performance_monitor.py --family nb
       - name: Upload DLE results as artifact
         if: always()
         uses: actions/upload-artifact@v4
