@@ -12,11 +12,12 @@ Deux modes :
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -158,10 +159,8 @@ class ParquetStore:
             raise RuntimeError("huggingface_hub est requis pour le mode remote") from exc
 
         self._con.execute("INSTALL httpfs; LOAD httpfs;")
-        try:
+        with contextlib.suppress(Exception):
             self._con.execute("SET prefetch_all_parquet_files=true")
-        except Exception:
-            pass
 
         if self.hf_token:
             self._con.execute(f"""
@@ -333,7 +332,7 @@ class ParquetStore:
         if not papers_list:
             return 0
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         int_cols = ["n_pages"]
         int8_cols = [
@@ -492,7 +491,7 @@ class ParquetStore:
         if self.remote:
             raise RuntimeError("upsert_model n'est pas supporte en mode remote")
         import json
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         new_row = {
             "model_name": model_name,
@@ -511,7 +510,7 @@ class ParquetStore:
         if self.registry_file.exists():
             existing = pq.read_table(self.registry_file).to_pandas()
             existing = existing[existing["model_name"] != model_name]
-            all_rows = existing.to_dict("records") + [new_row]
+            all_rows = [*existing.to_dict("records"), new_row]
         else:
             all_rows = [new_row]
 
@@ -608,7 +607,7 @@ class ParquetStore:
     ) -> int:
         if self.remote:
             raise RuntimeError("update_target_completeness n'est pas supporte en mode remote")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         rows = []
         for year in range(year_min, year_max + 1):
             complete = (year + horizon_years) < snapshot_year
@@ -627,7 +626,7 @@ class ParquetStore:
         if not self.completeness_file.exists():
             return None
         df = pq.read_table(self.completeness_file).to_pandas()
-        complete = df[df["complete"] == True]
+        complete = df[df["complete"]]
         return int(complete["year"].max()) if len(complete) else None
 
     # ─── QUERIES (DuckDB) ───────────────────────────────────────────────
