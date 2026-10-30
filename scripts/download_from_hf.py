@@ -22,7 +22,7 @@ def main() -> int:
         help="Repo HF (user/dataset)",
     )
     parser.add_argument("--target", type=Path, default=Path("data"))
-    parser.add_argument("--force", action="store_true", help="Retélécharger même si présent")
+    parser.add_argument("--force", action="store_true", help="Re-telecharger meme si present")
     args = parser.parse_args()
 
     token = os.environ.get("HF_TOKEN")
@@ -70,12 +70,13 @@ def main() -> int:
 
     allow_patterns = [
         "features/chunk-*.parquet",
+        "papers/decade=*.parquet",
+        "predictions/family=*/model=*.parquet",
+        "reference_sets/*.parquet",
         "pmid_index.parquet",
         "registry.parquet",
         "target_completeness.parquet",
         "stats.json",
-        "papers/decade=*.parquet",
-        "predictions/family=*/model=*.parquet",
     ]
 
     try:
