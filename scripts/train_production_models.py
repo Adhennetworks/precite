@@ -74,8 +74,8 @@ def train_production(
     snapshot_year: int,
     store: ParquetStore,
 ) -> dict | None:
-    from precite.training.trainer import _filter_for_training, _robust_metrics
     from precite.evaluation.metrics import compute_metrics
+    from precite.training.trainer import _filter_for_training, _robust_metrics
 
     spec = MODELS[model_type]
     target = spec["target"]
@@ -274,7 +274,7 @@ def main() -> int:
     train_year_max = latest
     train_year_min = latest - args.window + 1
 
-    print(f"=== Entrainement production ===")
+    print("=== Entrainement production ===")
     print(f"Snapshot       : {args.snapshot_year}")
     print(f"Horizon        : {args.horizon} ans")
     print(f"Derniere cible : {latest}")
@@ -287,9 +287,9 @@ def main() -> int:
     print(f"  {len(df):,} articles")
 
     if "is_research_article" in df.columns:
-        df = df[df["is_research_article"] == True].copy()
+        df = df[df["is_research_article"]].copy()
     if "has_enough_history" in df.columns:
-        df = df[df["has_enough_history"] == True].copy()
+        df = df[df["has_enough_history"]].copy()
     print(f"  Apres filtres : {len(df):,} articles")
     print()
 

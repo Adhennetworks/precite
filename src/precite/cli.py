@@ -312,15 +312,14 @@ app.add_typer(predict_app, name="predict")
 def predict_batch_cmd(
     source: Annotated[str, typer.Option("--source", "-s", help="Dossier Parquet")],
     batch_id: Annotated[str, typer.Option("--batch-id", help="Identifiant du batch")],
-    db: Annotated[str | None, typer.Option("--db", help="Chemin SQLite")] = None,
 ) -> None:
-    """Applique tous les modeles en Production a un batch de features."""
+    """Applique les modeles de production a un batch de features."""
     from precite.predict.batch import predict_batch
 
     console.print(f"[cyan]Source:[/] {source}")
     console.print(f"[cyan]Batch:[/] {batch_id}")
 
-    summary = predict_batch(source=source, batch_id=batch_id, db_path=db)
+    summary = predict_batch(source=source, batch_id=batch_id)
 
     table = Table(title="Prediction batch")
     table.add_column("Metrique", style="cyan")

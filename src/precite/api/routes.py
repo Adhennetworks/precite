@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -26,39 +25,39 @@ from precite.utils.logging import get_logger
 log = get_logger(__name__)
 router = APIRouter()
 
+_WARMUP_TIMEOUT_S = 60.0
+
+
+async def _wait_for_warmup(request: Request, *, route: str) -> None:
+    """Attend la fin du warmup (bornee dans le temps) si une tache tourne."""
+    event = getattr(request.app.state, "warmup_done", None)
+    if event is None:
+        return
+    try:
+        await asyncio.wait_for(event.wait(), timeout=_WARMUP_TIMEOUT_S)
+    except TimeoutError:
+        log.warning("warmup.timeout", route=route)
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Healthcheck sans I/O : repond instantanement, ne cree pas le store.
+    """Healthcheck sans I/O. Le store est cree a la premiere vraie requete."""
+    return HealthResponse(status="ok", papers=-1, predictions=-1, models=0)
 
-    Le store sera cree a la premiere vraie requete (/papers, /stats, etc.).
-    """
-    return HealthResponse(
-        status="ok",
-        papers=-1,
-        predictions=-1,
-        models=0,
-    )
 
 @router.get("/stats", response_model=StatsResponse)
 async def stats(
     request: Request,
     store: ParquetStore = Depends(get_store),
 ) -> StatsResponse:
-    if hasattr(request.app.state, "warmup_done"):
-        try:
-            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
-        except TimeoutError:
-            log.warning("warmup.timeout", route="stats")
-    s = store.stats()
+    await _wait_for_warmup(request, route="stats")
+    s = await asyncio.to_thread(store.stats)
     return StatsResponse(**s)
+
 
 @router.get("/status_report", response_model=StatusReportResponse)
 def status_report() -> StatusReportResponse:
-    """Rapport detaille sur les statuts MEDLINE.
-
-    Lit data/stats.json (pre-calcule par le workflow).
-    Fichier telecharge au demarrage de l'API.
-    """
+    """Rapport detaille sur les statuts MEDLINE (lu depuis stats.json)."""
     import json
     from pathlib import Path as _Path
 
@@ -81,24 +80,19 @@ def status_report() -> StatusReportResponse:
         }
     })
 
-@lru_cache(maxsize=1000)
-def _get_paper_cached(pmid: str) -> dict | None:
-    """Cache les lookups. Les requetes repetees sur le meme PMID sont instantanees."""
-    from precite.api.deps import get_store
-    return get_store().get_paper(pmid)
-
 
 @router.get("/papers/{pmid}", response_model=PaperDetail)
-async def get_paper(pmid: str, request: Request) -> PaperDetail:
-    # Attendre que le warmup soit fini (max 60s)
-    if hasattr(request.app.state, "warmup_done"):
-        try:
-            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
-        except TimeoutError:
-            log.warning("warmup.timeout", pmid=pmid)
-    
-    paper = _get_paper_cached(str(pmid))
-    # Extraire les features (tout sauf les metadonnees)
+async def get_paper(
+    pmid: str,
+    request: Request,
+    store: ParquetStore = Depends(get_store),
+) -> PaperDetail:
+    await _wait_for_warmup(request, route="get_paper")
+
+    paper = await asyncio.to_thread(store.get_paper, str(pmid))
+    if paper is None:
+        raise HTTPException(status_code=404, detail=f"PMID {pmid} introuvable")
+
     meta_keys = {
         "pmid", "year", "batch_id", "ingested_at",
         "citations_3y", "weighted_citations_3y",
@@ -106,7 +100,6 @@ async def get_paper(pmid: str, request: Request) -> PaperDetail:
         "predictions", "features",
     }
     features = {k: v for k, v in paper.items() if k not in meta_keys}
-    # Garder uniquement les features connues
     features = {k: v for k, v in features.items() if k in FEATURE_COLUMNS}
 
     preds = [
@@ -140,14 +133,10 @@ async def search_papers(
     limit: int = Query(100, ge=1, le=1000),
     store: ParquetStore = Depends(get_store),
 ) -> PaperListResponse:
-    # Attendre que le warmup soit fini (max 60s)
-    if hasattr(request.app.state, "warmup_done"):
-        try:
-            await asyncio.wait_for(request.app.state.warmup_done.wait(), timeout=60.0)
-        except TimeoutError:
-            log.warning("warmup.timeout", route="search_papers")
-    
-    papers = store.search_papers(
+    await _wait_for_warmup(request, route="search_papers")
+
+    papers = await asyncio.to_thread(
+        store.search_papers,
         year_min=year_min,
         year_max=year_max,
         limit=limit,
@@ -169,6 +158,7 @@ def list_models(
     model_type: str | None = Query(None, description="lm, nb, production-lm, dle-lm, ..."),
     store: ParquetStore = Depends(get_store),
 ) -> ModelListResponse:
+    # `def` (pas `async def`) : FastAPI l'execute dans son threadpool.
     all_models = store.list_models()
     if model_type:
         all_models = [m for m in all_models if m["model_type"] == model_type]
@@ -187,6 +177,8 @@ def list_models(
         for m in all_models
     ]
     return ModelListResponse(models=items, count=len(items))
+
+
 @router.get("/")
 def root() -> dict:
     return {"service": "precite-api", "status": "ok"}
