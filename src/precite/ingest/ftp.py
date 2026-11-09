@@ -47,7 +47,12 @@ def _stream_once(
     chunk_size: int,
     client: httpx.Client,
 ) -> Iterator[bytes]:
-    """Un seul passage de streaming a partir de `offset`."""
+    """Un seul passage de streaming a partir de `offset`.
+
+    Leve `DownloadError` si le serveur ne supporte pas Range (impossible
+    de reprendre proprement). Le caller (stream_file) incremente alors
+    son compteur de resumes et abandonne apres max_resumes.
+    """
     _rate_limit(0.25)
     headers = {}
     if offset > 0:
@@ -61,24 +66,28 @@ def _stream_once(
                 request=r.request,
                 response=r,
             )
+
+        # Cas 1 : on demandait une reprise (offset > 0), le serveur renvoie 200
+        # -> il ignore Range. On ne peut PAS reprendre sans dupliquer les donnees.
+        # -> on abandonne, le caller retryera depuis zero si besoin.
+        if offset > 0 and r.status_code == 200:
+            log.warning(
+                "ftp.range.unsupported_abort",
+                url=url,
+                offset=offset,
+                note="serveur ignore Range, abandon du stream pour eviter duplication",
+            )
+            raise DownloadError(
+                f"Serveur {url} ne supporte pas Range (attendu 206, recu 200 a offset={offset})"
+            )
+
         if r.status_code not in (200, 206):
             r.raise_for_status()
 
-        if offset > 0 and r.status_code == 200:
-            log.warning("ftp.range.unsupported", url=url, offset=offset)
-            skipped = 0
-            for chunk in r.iter_bytes(chunk_size=chunk_size):
-                if skipped + len(chunk) <= offset:
-                    skipped += len(chunk)
-                    continue
-                yield chunk[offset - skipped :]
-                skipped = offset
-                break
-
+        # Cas 2 : reponse 206 (range supporte) ou 200 sur un offset=0 (premier appel)
         for chunk in r.iter_bytes(chunk_size=chunk_size):
             if chunk:
                 yield chunk
-
 
 def stream_file(
     url: str,
@@ -109,7 +118,7 @@ def stream_file(
                 log.info("ftp.stream.done", url=url, bytes=total, resumes=n_resumes)
                 return
 
-            except (httpx.HTTPError, httpx.StreamError) as exc:
+            except (httpx.HTTPError, httpx.StreamError, DownloadError) as exc:
                 n_resumes += 1
                 if n_resumes > max_resumes:
                     log.error(
@@ -137,5 +146,10 @@ def stream_file(
                 elif "503" in err_lower or "service unavailable" in err_lower:
                     log.warning("ftp.503_backoff", url=url, wait=15)
                     _time.sleep(15)
+                elif "range" in err_lower:
+                    # Serveur sans Range : on repart de zero, c'est le seul moyen
+                    log.warning("ftp.range_fallback_zero", url=url, previous_offset=total)
+                    total = 0  # <- reset, on relit depuis le debut
+                    _time.sleep(2)
                 else:
                     _time.sleep(min(2 ** n_resumes, 30))
