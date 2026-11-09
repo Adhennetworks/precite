@@ -25,6 +25,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from precite.routing import select_routing
 from precite.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -360,28 +361,28 @@ class ParquetStore:
         return f"read_parquet('{self.predictions_dir}/family=*/*.parquet')"
 
     def _select_prediction_files(self, family: str, year: int) -> list[str]:
+        """Selectionne les fichiers Parquet de prediction pour une annee.
+
+        Delegue a precite.routing.select_routing pour rester synchronise
+        avec batch.py (ecriture). Toute modification de la politique de
+        routing doit passer par ce module.
+        """
         idx = self._prediction_index.get(family)
         if not idx:
             return []
-        annuals = idx["annuals"]
-        production = idx["production"]
-        last = self._last_complete_year
 
-        if last is None or year <= last:
-            if year in annuals:
-                return [annuals[year]]
-            candidates = [y for y in annuals if y <= year]
-            if candidates:
-                return [annuals[max(candidates)]]
-            if annuals:
-                return [annuals[min(annuals)]]
+        decision = select_routing(
+            year,
+            annual_years=set(idx["annuals"].keys()),
+            production_years=set(idx["production"].keys()),
+            last_complete_year=self._last_complete_year,
+        )
 
-        if production:
-            return [production[max(production)]]
-
-        if annuals:
-            return [annuals[max(annuals)]]
-        return []
+        if decision.year is None:
+            return []
+        if decision.is_production:
+            return [idx["production"][decision.year]]
+        return [idx["annuals"][decision.year]]
 
     # ─── PAPERS (write : local uniquement) ──────────────────────────────
 
