@@ -7,7 +7,7 @@ Regle :
 
 Les features a queue lourde (n_references, mean_ref_age, abstract_len)
 sont transformees par arsinh AVANT l'inference, conformement a
-l'entrainement (voir FEATURE_TRANSFORMS dans loader.py).
+l'entrainement (voir FEATURE_TRANSFORMS dans precite.schema).
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from precite.datasets.loader import (
     _apply_transforms,
     load_features,
 )
+from precite.routing import select_routing
 from precite.storage.parquet_store import ParquetStore
 from precite.utils.logging import get_logger
 
@@ -42,21 +43,33 @@ def _load_model(uri: str):
     return model
 
 
-def _select_model_for_year(target_year, historical, production, last_historical_year):
-    if target_year in historical:
-        return historical[target_year], "historical"
-    if production is not None and last_historical_year is not None and target_year > last_historical_year:
-        return production, "production"
-    if historical:
-        earliest = min(historical.keys())
-        if target_year < earliest:
-            return historical[earliest], "fallback_early"
-        candidates = [y for y in historical if y < target_year]
-        if candidates:
-            return historical[max(candidates)], "fallback_before"
-    if production is not None:
-        return production, "fallback_production"
-    return None, "none"
+def _select_model_for_year(
+    target_year: int,
+    historical: dict[int, dict],
+    production: dict | None,
+    last_complete_year: int | None,
+) -> tuple[dict | None, str]:
+    """Wrapper autour de routing.select_routing() pour le format historique.
+
+    Retourne (model_info, route). Voir precite.routing.select_routing
+    pour la politique de selection.
+    """
+    production_dict: dict[int, dict] = {}
+    if production is not None and "valid_year" in production:
+        production_dict[production["valid_year"]] = production
+
+    decision = select_routing(
+        target_year,
+        annual_years=set(historical.keys()),
+        production_years=set(production_dict.keys()),
+        last_complete_year=last_complete_year,
+    )
+
+    if decision.year is None:
+        return None, "none"
+    if decision.is_production:
+        return production_dict[decision.year], decision.route
+    return historical[decision.year], decision.route
 
 
 def predict_batch(
@@ -92,11 +105,22 @@ def predict_batch(
 
     historical = {m["valid_year"]: m for m in store.list_models_by_type(model_family)}
     production = store.get_production_model(model_family)
+    last_complete_year = store.latest_complete_target_year()
 
     if not historical and production is None:
         raise RuntimeError(f"Aucun modele '{model_family}'")
 
-    last_historical_year = max(historical.keys()) if historical else None
+    # Alerte si divergence entre le dernier modele annuel et la derniere
+    # cible complete (indique un pipeline mal aligne).
+    if historical and last_complete_year is not None:
+        last_historical = max(historical.keys())
+        if last_historical != last_complete_year:
+            log.warning(
+                "predict.routing_divergence",
+                last_historical=last_historical,
+                last_complete=last_complete_year,
+                note="le dernier modele annuel et la derniere cible complete different",
+            )
 
     df["year"] = df["year"].astype(int)
     available = [c for c in FEATURE_COLUMNS if c in df.columns]
@@ -119,14 +143,14 @@ def predict_batch(
         target_year = year_int + model_year_offset
 
         model_info, route = _select_model_for_year(
-            target_year, historical, production, last_historical_year
+            target_year, historical, production, last_complete_year
         )
         if model_info is None:
             routing_stats["none"] += 1
             continue
 
         try:
-            run_id = model_info.get('run_id')
+            run_id = model_info.get("run_id")
             if run_id:
                 uri = f"runs:/{run_id}/model"
             else:

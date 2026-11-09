@@ -1,4 +1,22 @@
-"""Base SQLite : papers, predictions, models."""
+"""Base SQLite : papers, predictions, models.
+
+⚠️  LEGACY — NE PAS UTILISER POUR DU NOUVEAU CODE.
+
+L'API et le pipeline utilisent precite.storage.parquet_store.ParquetStore
+(Parquet + DuckDB), pas cette classe.
+
+PredictionsDB n'est conserve que pour scripts/monitor_dle.py (script
+one-shot de debug DLE). Il sera supprime quand monitor_dle.py sera
+migre vers ParquetStore.
+
+Reference : review #16 (Batch 4 cleanup).
+
+Structure :
+- papers        : PMID -> features + metadonnees
+- predictions   : (pmid, model_name, model_version) -> prediction
+- models        : registry des modeles entraines
+- target_completeness : annees avec cible complete
+"""
 
 from __future__ import annotations
 
