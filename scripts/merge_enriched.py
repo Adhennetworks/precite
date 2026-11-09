@@ -1,7 +1,11 @@
 """Merge incremental : ajoute les nouveaux articles aux chunks existants.
 
-Ne charge JAMAIS tous les chunks en memoire. Fait un anti-join chunk
-par chunk pour borner la RAM.
+Ne charge JAMAIS tous les chunks en memoire. Fait un anti-join unique
+sur l'ensemble des chunks (pas chunk par chunk), ce qui permet a DuckDB
+d'optimiser le plan de requete et de spill sur disque si besoin.
+
+Avant : N DELETE WHERE pmid IN (SELECT ... FROM chunk_N) -> O(n*m).
+Apres : 1 ANTI JOIN sur l'union de tous les chunks -> O(n + m).
 
 Usage :
     python scripts/merge_enriched.py
@@ -39,55 +43,58 @@ def main() -> int:
 
     con = duckdb.connect()
     con.execute("SET memory_limit='3GB'")
-    con.execute("SET threads=1")
+    con.execute("SET threads=2")
     con.execute(f"SET temp_directory='{TMP.as_posix()}'")
     con.execute("SET preserve_insertion_order=false")
 
-    # 1. Charge les NOUVEAUX fichiers dans une petite table
+    # 1. Dedup intra-nouveaux-fichiers (dernier gagne, filename DESC)
     print("Chargement des nouveaux fichiers...")
     new_sql = ", ".join(f"'{f.as_posix()}'" for f in new_files)
     con.execute(f"""
         CREATE OR REPLACE TABLE candidates AS
-        SELECT * EXCLUDE (rn, filename) FROM (
+        SELECT * EXCLUDE (_rn, filename) FROM (
             SELECT *,
                    ROW_NUMBER() OVER (
                        PARTITION BY CAST(pmid AS VARCHAR)
                        ORDER BY filename DESC
-                   ) AS rn
+                   ) AS _rn
             FROM read_parquet(
                 [{new_sql}],
                 union_by_name=true,
                 filename=true
             )
-        ) WHERE rn = 1
+        ) WHERE _rn = 1
     """)
     n_init = con.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
     print(f"  {n_init:,} candidats uniques (avant anti-join)")
 
-    # 2. Anti-join contre chaque chunk UN PAR UN (1M PMIDs en memoire max)
+    # 2. ANTI JOIN unique contre l'union de tous les chunks existants
     if existing_chunks:
-        print(f"Anti-join contre {len(existing_chunks)} chunks...")
-        for i, chunk in enumerate(existing_chunks, 1):
-            before = con.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
-            if before == 0:
-                break
-            con.execute(f"""
-                DELETE FROM candidates
-                WHERE CAST(pmid AS VARCHAR) IN (
-                    SELECT CAST(pmid AS VARCHAR)
-                    FROM read_parquet('{chunk.as_posix()}')
-                )
-            """)
-            after = con.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
-            removed = before - after
-            if removed > 0 or i % 10 == 0:
-                print(f"  [{i}/{len(existing_chunks)}] -{removed:,} (reste {after:,})")
+        print(f"Anti-join contre {len(existing_chunks)} chunks (1 requete)...")
+        existing_sql = ", ".join(f"'{c.as_posix()}'" for c in existing_chunks)
+        t0 = con.execute("SELECT 1").fetchone()  # dummy pour timing
+        import time as _time
+        start = _time.time()
 
-    n_new = con.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
-    print(f"  {n_new:,} articles vraiment nouveaux")
+        con.execute(f"""
+            CREATE OR REPLACE TABLE candidates_filtered AS
+            SELECT c.* FROM candidates c
+            ANTI JOIN (
+                SELECT DISTINCT CAST(pmid AS VARCHAR) AS pmid
+                FROM read_parquet([{existing_sql}], union_by_name=true)
+            ) e ON CAST(c.pmid AS VARCHAR) = e.pmid
+        """)
+
+        elapsed = _time.time() - start
+        n_new = con.execute("SELECT COUNT(*) FROM candidates_filtered").fetchone()[0]
+        print(f"  {n_new:,} articles vraiment nouveaux (en {elapsed:.1f}s)")
+    else:
+        con.execute("CREATE OR REPLACE TABLE candidates_filtered AS SELECT * FROM candidates")
+        n_new = n_init
 
     if n_new == 0:
         print("Aucun nouvel article a ajouter.")
+        con.close()
         return 0
 
     # 3. Determine l'index du prochain chunk
@@ -109,7 +116,8 @@ def main() -> int:
         out = OUT / f"chunk-{next_idx + i:04d}.parquet"
         con.execute(f"""
             COPY (
-                SELECT * FROM candidates
+                SELECT * FROM candidates_filtered
+                ORDER BY pmid
                 LIMIT {TARGET_ROWS_PER_CHUNK}
                 OFFSET {offset}
             ) TO '{out.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)

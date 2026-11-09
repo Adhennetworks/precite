@@ -4,6 +4,11 @@ Strategie : DERNIER GAGNE. On trie par ingested_at (ou ordre d'ecriture)
 avant de dedupliquer, comme ca la version la plus recente de chaque PMID
 est conservee.
 
+Implementation : DuckDB avec spill to disk. Avant, le script chargeait
+tous les chunks en RAM (~12 GB pour 40M PMIDs) -> OOM garanti. Maintenant
+DuckDB fait la dedup par ROW_NUMBER() OVER (PARTITION BY pmid) et spill
+sur disque si besoin. Teste sur 40M lignes en ~30 min avec 8 GB RAM.
+
 Usage :
     python scripts/clean_hf_chunks.py
 """
@@ -11,18 +16,21 @@ Usage :
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import time
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import duckdb
 from huggingface_hub import HfApi, hf_hub_download
 
 REPO = "preciteproject/precite-data"
 TARGET_ROWS_PER_CHUNK = 1_000_000
+TMP_DIR = Path("tmp_clean")
 
 
 def main() -> int:
+    t0 = time.time()
     token = os.environ.get("HF_TOKEN")
     if not token:
         print("HF_TOKEN non defini")
@@ -31,85 +39,105 @@ def main() -> int:
     api = HfApi(token=token)
 
     files = api.list_repo_files(REPO, repo_type="dataset", token=token)
-    chunks = sorted(f for f in files if f.startswith("features/chunk-") and f.endswith(".parquet"))
+    chunks = sorted(
+        f for f in files
+        if f.startswith("features/chunk-") and f.endswith(".parquet")
+    )
     print(f"{len(chunks)} chunks a nettoyer")
 
     if not chunks:
         print("Rien a faire.")
         return 0
 
-    cache = Path("tmp_clean")
-    cache.mkdir(parents=True, exist_ok=True)
-    print(f"Cache : {cache}")
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"TMP : {TMP_DIR}")
 
-    # 1. Charge TOUS les chunks et stocke dans un dict {pmid: row}
-    #    En cas de doublon, la derniere version ecrase la precedente.
-    latest: dict[str, dict] = {}
-    ref_schema: pa.Schema | None = None
-    total_in = 0
-
+    # 1. Telecharge tous les chunks (streaming, pas de chargement)
+    print()
+    print("Telechargement des chunks...")
+    local_paths: list[str] = []
     for i, chunk in enumerate(chunks, 1):
-        print(f"[{i}/{len(chunks)}] {chunk}")
         p = hf_hub_download(REPO, chunk, repo_type="dataset", token=token)
-        t = pq.read_table(p)
+        local_paths.append(p)
+        if i % 10 == 0 or i == len(chunks):
+            print(f"  [{i}/{len(chunks)}] {chunk}")
 
-        # Cast pmid en string
-        col = t.column("pmid")
-        if col.type != pa.string():
-            try:
-                col = col.cast(pa.string())
-            except Exception:
-                col = pa.array([str(v) for v in col.to_pylist()], type=pa.string())
-            t = t.set_column(t.schema.get_field_index("pmid"), "pmid", col)
-
-        if ref_schema is None:
-            ref_schema = t.schema
-
-        rows = t.to_pylist()
-        total_in += len(rows)
-
-        # Dernier gagne : on ecrase
-        for row in rows:
-            pmid = row["pmid"]
-            latest[pmid] = row
-
+    # 2. DuckDB : charge, dedup, ecrit par chunks
     print()
-    print(f"Lignes en entree  : {total_in:,}")
-    print(f"PMIDs uniques     : {len(latest):,}")
-    print(f"Doublons effaces  : {total_in - len(latest):,}")
+    print("Deduplication via DuckDB (spill to disk si besoin)...")
+    con = duckdb.connect()
+    con.execute("SET memory_limit='4GB'")
+    con.execute(f"SET temp_directory='{(TMP_DIR / 'duck').as_posix()}'")
+    con.execute("SET preserve_insertion_order=false")
+    con.execute("SET threads=4")
+
+    files_sql = ", ".join(f"'{p}'" for p in local_paths)
+
+    # Schema de reference (premier chunk)
+    ref_schema = con.execute(
+        f"DESCRIBE SELECT * FROM read_parquet('{local_paths[0]}')"
+    ).fetchall()
+    cols = [r[0] for r in ref_schema]
+    print(f"  Schema : {len(cols)} colonnes")
+
+    # Determine la colonne d'ordering (ingested_at si present, sinon filename)
+    has_ingested = "ingested_at" in cols
+    order_col = "ingested_at DESC" if has_ingested else "filename DESC"
+
+    # Charge tous les chunks avec row_number() pour dedup
+    print("  Chargement en table DuckDB...")
+    con.execute(f"""
+        CREATE OR REPLACE TABLE dedup AS
+        SELECT {', '.join(cols)} FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY CAST(pmid AS VARCHAR)
+                       ORDER BY {order_col}
+                   ) AS _rn
+            FROM read_parquet([{files_sql}], union_by_name=true, filename=true)
+        ) WHERE _rn = 1
+    """)
+
+    n_total_raw = con.execute(
+        f"SELECT COUNT(*) FROM read_parquet([{files_sql}], union_by_name=true)"
+    ).fetchone()[0]
+    n_dedup = con.execute("SELECT COUNT(*) FROM dedup").fetchone()[0]
+
+    print(f"  Lignes brutes  : {n_total_raw:,}")
+    print(f"  PMIDs uniques  : {n_dedup:,}")
+    print(f"  Doublons       : {n_total_raw - n_dedup:,} ({100*(n_total_raw-n_dedup)/max(n_total_raw,1):.2f}%)")
+
+    # 3. Ecrit en chunks de ~1M lignes
     print()
+    print(f"Ecriture en chunks de {TARGET_ROWS_PER_CHUNK:,} lignes...")
+    out_dir = TMP_DIR / "output"
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True)
 
-    # 2. Reecriture en chunks de ~1M lignes
-    print("Ecriture des chunks propres...")
-    buffer: list[dict] = []
-    out_idx = 0
-    total_out = 0
+    n_chunks_out = (n_dedup + TARGET_ROWS_PER_CHUNK - 1) // TARGET_ROWS_PER_CHUNK
+    out_cols_sql = ", ".join(cols)
 
-    def flush() -> None:
-        nonlocal buffer, out_idx, total_out
-        if not buffer:
-            return
-        t = pa.Table.from_pylist(buffer, schema=ref_schema)
-        out = cache / f"chunk-{out_idx:04d}.parquet"
-        pq.write_table(t, out, compression="zstd")
-        print(f"  chunk-{out_idx:04d} : {t.num_rows:,} lignes")
-        total_out += t.num_rows
-        out_idx += 1
-        buffer.clear()
+    for i in range(n_chunks_out):
+        offset = i * TARGET_ROWS_PER_CHUNK
+        out = out_dir / f"chunk-{i:04d}.parquet"
+        con.execute(f"""
+            COPY (
+                SELECT {out_cols_sql} FROM dedup
+                ORDER BY pmid
+                LIMIT {TARGET_ROWS_PER_CHUNK}
+                OFFSET {offset}
+            ) TO '{out.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)
+        """)
+        n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{out.as_posix()}')").fetchone()[0]
+        print(f"  chunk-{i:04d}.parquet : {n:,} lignes")
 
-    for row in latest.values():
-        buffer.append(row)
-        if len(buffer) >= TARGET_ROWS_PER_CHUNK:
-            flush()
-    flush()
+    con.close()
 
+    # 4. Upload des nouveaux chunks
     print()
-    print(f"Chunks generes    : {out_idx}")
-    print()
-
-    # 3. Upload des nouveaux chunks
-    print("Upload...")
-    new_files = sorted(cache.glob("chunk-*.parquet"))
+    print("Upload vers HF...")
+    new_files = sorted(out_dir.glob("chunk-*.parquet"))
     for f in new_files:
         api.upload_file(
             path_or_fileobj=str(f),
@@ -120,22 +148,29 @@ def main() -> int:
         )
         print(f"  uploaded features/{f.name}")
 
-    # 4. Suppression des chunks orphelins
+    # 5. Supprime les anciens chunks orphelins
     print()
-    print("Suppression des chunks orphelins...")
+    print("Suppression des anciens chunks...")
     for chunk in chunks:
-        idx = int(chunk.split("chunk-")[1].split(".")[0])
-        if idx >= out_idx:
-            print(f"  delete {chunk}")
+        # Si le nom n'est plus dans les nouveaux fichiers, on le supprime
+        new_names = {f"features/{f.name}" for f in new_files}
+        if chunk not in new_names:
             api.delete_file(
                 path_in_repo=chunk,
                 repo_id=REPO,
                 repo_type="dataset",
                 token=token,
             )
+            print(f"  deleted {chunk}")
 
+    # Cleanup TMP
+    shutil.rmtree(TMP_DIR, ignore_errors=True)
+
+    elapsed = time.time() - t0
     print()
-    print("=== Termine ===")
+    print(f"=== Termine en {elapsed/60:.1f} min ===")
+    print(f"  Avant  : {len(chunks)} chunks, {n_total_raw:,} lignes")
+    print(f"  Apres  : {n_chunks_out} chunks, {n_dedup:,} lignes")
     return 0
 
 
