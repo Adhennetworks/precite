@@ -30,6 +30,49 @@ from precite.utils.logging import get_logger
 log = get_logger(__name__)
 
 
+def _execute_with_retry(
+    con,
+    query: str,
+    params: list | None = None,
+    *,
+    max_retries: int = 3,
+    remote: bool = False,
+):
+    """Execute une requete DuckDB avec retry sur erreurs transitoires.
+
+    En mode remote (HF httpfs), les timeouts DNS/CDN au cold start sont
+    courants. On retry 3 fois avec backoff. En local, pas de retry
+    (les erreurs sont des vrais bugs).
+    """
+    import time as _time
+
+    if not remote:
+        if params is not None:
+            return con.execute(query, params)
+        return con.execute(query)
+
+    delays = [0.1, 0.5, 2.0]
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            if params is not None:
+                return con.execute(query, params)
+            return con.execute(query)
+        except Exception as exc:
+            last_exc = exc
+            err_str = str(exc).lower()
+            # Ne retry que sur les erreurs reseau transitoires
+            if not any(k in err_str for k in (
+                "timeout", "connection", "dns", "http", "503", "502", "504",
+                "could not connect", "unable to connect",
+            )):
+                raise
+            if attempt < max_retries - 1:
+                _time.sleep(delays[attempt])
+
+    raise last_exc  # type: ignore[misc]
+
+
 # ─── Schemas ────────────────────────────────────────────────────────────────
 
 PAPERS_SCHEMA = pa.schema([
@@ -663,6 +706,9 @@ class ParquetStore:
     # ─── QUERIES (DuckDB) ───────────────────────────────────────────────
 
     def get_paper(self, pmid: str) -> dict | None:
+        # Note : on ne met PAS _execute_with_retry ici. get_paper() catch
+        # deja les erreurs et retourne None (le 404 sur PMID inexistant
+        # est un cas normal, pas une erreur transitoire).
         pmid_str = str(pmid).strip()
         index_file = self.root / "pmid_index.parquet"
 
@@ -780,12 +826,16 @@ class ParquetStore:
 
         try:
             with self._lock:
-                result = self._con.execute(f"""
-                    SELECT pmid, year, citations_3y, weighted_citations_3y
-                    FROM read_parquet([{urls_sql}], union_by_name=true)
-                    {where}
-                    LIMIT {limit}
-                """).fetchdf()
+                result = _execute_with_retry(
+                    self._con,
+                    f"""
+                        SELECT pmid, year, citations_3y, weighted_citations_3y
+                        FROM read_parquet([{urls_sql}], union_by_name=true)
+                        {where}
+                        LIMIT {limit}
+                    """,
+                    remote=self.remote,
+                ).fetchdf()
                 return result.to_dict("records")
         except Exception as exc:
             log.warning("search_papers.failed", error=str(exc))
@@ -818,14 +868,18 @@ class ParquetStore:
         preds_glob = self.predictions_glob()
 
         with self._lock:
-            n_papers = self._con.execute(
-                f"SELECT COUNT(*) FROM {papers_glob}"
+            n_papers = _execute_with_retry(
+                self._con,
+                f"SELECT COUNT(*) FROM {papers_glob}",
+                remote=self.remote,
             ).fetchone()[0]
 
             n_preds = 0
             if any(self.predictions_dir.rglob("*.parquet")):
-                n_preds = self._con.execute(
-                    f"SELECT COUNT(*) FROM {preds_glob}"
+                n_preds = _execute_with_retry(
+                    self._con,
+                    f"SELECT COUNT(*) FROM {preds_glob}",
+                    remote=self.remote,
                 ).fetchone()[0]
 
         n_models = len(self.list_models())
@@ -833,13 +887,17 @@ class ParquetStore:
         by_year = []
         try:
             with self._lock:
-                rows = self._con.execute(f"""
-                    SELECT year, COUNT(*) as n
-                    FROM {papers_glob}
-                    WHERE year >= 1950
-                    GROUP BY year
-                    ORDER BY year
-                """).fetchall()
+                rows = _execute_with_retry(
+                    self._con,
+                    f"""
+                        SELECT year, COUNT(*) as n
+                        FROM {papers_glob}
+                        WHERE year >= 1950
+                        GROUP BY year
+                        ORDER BY year
+                    """,
+                    remote=self.remote,
+                ).fetchall()
                 by_year = [{"year": int(y), "n": int(n)} for y, n in rows]
         except Exception:
             pass
@@ -857,8 +915,10 @@ class ParquetStore:
         try:
             urls_sql = ", ".join(f"'{u}'" for u in urls)
             with self._lock:
-                r = self._con.execute(
-                    f"SELECT SUM(num_rows) FROM parquet_file_metadata([{urls_sql}])"
+                r = _execute_with_retry(
+                    self._con,
+                    f"SELECT SUM(num_rows) FROM parquet_file_metadata([{urls_sql}])",
+                    remote=True,  # force remote, cette fonction n'est appelee qu'en remote
                 ).fetchone()
             return int(r[0]) if r and r[0] else 0
         except Exception as exc:
