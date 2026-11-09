@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -55,10 +56,36 @@ async def stats(
     return StatsResponse(**s)
 
 
+@lru_cache(maxsize=1)
+def _load_stats_json_cached(path: str, mtime_ns: int) -> dict:
+    """Charge stats.json (cache par mtime).
+
+    Le second arg `mtime_ns` est utilise uniquement comme cle de cache :
+    si le fichier change, mtime_ns change, le cache est invalide.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    with open(_Path(path)) as f:
+        data = json.load(f)
+
+    return {
+        k: v for k, v in data.items()
+        if k in {
+            "total_articles", "total_predictions", "total_models",
+            "medline_breakdown", "medline_breakdown_recent",
+            "by_year", "by_year_medline",
+        }
+    }
+
+
 @router.get("/status_report", response_model=StatusReportResponse)
 def status_report() -> StatusReportResponse:
-    """Rapport detaille sur les statuts MEDLINE (lu depuis stats.json)."""
-    import json
+    """Rapport detaille sur les statuts MEDLINE (lu depuis stats.json).
+
+    Cache par mtime : le fichier est relu uniquement s'il a change.
+    """
+    import os
     from pathlib import Path as _Path
 
     stats_file = _Path("data") / "stats.json"
@@ -68,17 +95,9 @@ def status_report() -> StatusReportResponse:
             detail="stats.json absent - lance scripts/compute_stats.py",
         )
 
-    with open(stats_file) as f:
-        data = json.load(f)
-
-    return StatusReportResponse(**{
-        k: v for k, v in data.items()
-        if k in {
-            "total_articles", "total_predictions", "total_models",
-            "medline_breakdown", "medline_breakdown_recent",
-            "by_year", "by_year_medline",
-        }
-    })
+    mtime_ns = os.stat(stats_file).st_mtime_ns
+    data = _load_stats_json_cached(str(stats_file), mtime_ns)
+    return StatusReportResponse(**data)
 
 
 @router.get("/papers/{pmid}", response_model=PaperDetail)
