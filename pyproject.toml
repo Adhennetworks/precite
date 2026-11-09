@@ -41,7 +41,18 @@ api = [
     "duckdb>=1.0",
     "huggingface_hub>=0.24",
 ]
-dev = ["pytest>=8.0", "pytest-cov", "ruff>=0.5", "mypy>=1.10", "pre-commit"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pre-commit",
+    "fastapi>=0.110",
+    "statsmodels>=0.14",
+    "mlflow>=2.10",
+    "scikit-learn>=1.4",
+    "scipy>=1.11",
+]
 
 [project.scripts]
 precite = "precite.cli:app"
