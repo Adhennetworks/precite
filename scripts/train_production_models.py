@@ -3,7 +3,7 @@
 Regle : chaque modele est entraine sur les N dernieres annees avec cible
 complete, sur l'ensemble des articles research + history.
 
-Un split train/test 80/20 est fait AVANT le fit. Le test set (out-of-sample)
+Un split temporel strict est fait AVANT le fit. Le test set (out-of-sample)
 est sauvegarde dans data/reference_sets/production-{family}-{snapshot_year}.parquet
 pour servir de reference au DLE.
 
@@ -97,7 +97,6 @@ def train_production(
         print(f"  Pas assez d'annees distinctes ({len(years)}) pour split", flush=True)
         return None
 
-    # Garde ~20% des annees les plus recentes en test (min 1 an)
     n_test_years = max(1, round(len(years) * 0.2))
     test_years = set(years[-n_test_years:])
     train_years = set(years) - test_years
@@ -255,12 +254,21 @@ def main() -> int:
     parser.add_argument("--model-type", choices=["lm", "nb"], default=None)
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--window", type=int, default=5)
-    parser.add_argument("--snapshot-year", type=int, default=2026)
-    parser.add_argument("--horizon", type=int, default=3)
+    parser.add_argument("--snapshot-year", type=int, default=None)
+    parser.add_argument("--horizon", type=int, default=None)
     parser.add_argument("--data", type=Path, default=ROOT / "data" / "final")
     parser.add_argument("--store-root", default=str(ROOT / "data"))
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+
+    # Resolution des defauts via Settings si non fournis en CLI
+    if args.snapshot_year is None or args.horizon is None:
+        from precite.config import get_settings
+        s = get_settings()
+        if args.snapshot_year is None:
+            args.snapshot_year = s.snapshot_year
+        if args.horizon is None:
+            args.horizon = s.horizon_years
 
     if not args.all and not args.model_type:
         print("Precise --model-type lm|nb ou --all")

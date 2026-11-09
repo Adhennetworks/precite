@@ -606,13 +606,22 @@ class ParquetStore:
     def update_target_completeness(
         self,
         *,
-        snapshot_year: int = 2026,
-        horizon_years: int = 3,
+        snapshot_year: int | None = None,
+        horizon_years: int | None = None,
         year_min: int = 1980,
         year_max: int = 2030,
     ) -> int:
         if self.remote:
             raise RuntimeError("update_target_completeness n'est pas supporte en mode remote")
+
+        if snapshot_year is None or horizon_years is None:
+            from precite.config import get_settings
+            s = get_settings()
+            if snapshot_year is None:
+                snapshot_year = s.snapshot_year
+            if horizon_years is None:
+                horizon_years = s.horizon_years
+
         now = datetime.now(UTC).isoformat()
         rows = []
         for year in range(year_min, year_max + 1):
