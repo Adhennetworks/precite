@@ -29,3 +29,28 @@ from precite.ingest.parser import _count_pages
 )
 def test_count_pages(raw, expected):
     assert _count_pages(raw) == expected
+
+def test_count_pages_abbreviated():
+    """Paginations abregées courantes en medecine (PNAS, Nature, etc.)."""
+    from precite.ingest.parser import _count_pages
+
+    # PNAS 2016 : 4591-6 = 4591-4596
+    assert _count_pages("4591-6") == 6
+    # supplement
+    assert _count_pages("S1-5") == 5
+    # deja complet
+    assert _count_pages("4591-4596") == 6
+    # e-pages completes
+    assert _count_pages("e12345-e12350") == 6
+
+
+def test_count_pages_standard_still_works():
+    """Non-regression sur les cas standards."""
+    from precite.ingest.parser import _count_pages
+
+    assert _count_pages("16-28") == 13
+    assert _count_pages("1") == 1
+    assert _count_pages("e12345") == 1
+    assert _count_pages(None) is None
+    assert _count_pages("") is None
+    assert _count_pages("16-28, 32") == 14    

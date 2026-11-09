@@ -100,11 +100,16 @@ def _extract_ref_pmid(ref: etree._Element) -> str | None:
             return _text(aid)
     return None
 
+
 def _count_pages(pages_raw: str | None) -> int | None:
     """Convertit une pagination XML en nombre de pages.
 
+    Gere les paginations standard ("16-28") et abregées ("4591-6" = 4591-4596,
+    "e12345-e12350" = 6, "S1-5" = 5).
+
     Exemples :
         "16-28"      -> 13
+        "4591-6"     -> 6      (abrege : 4591-4596)
         "e12345"     -> 1
         "16-28, 32"  -> 14
         "S1-5"       -> 5
@@ -113,7 +118,6 @@ def _count_pages(pages_raw: str | None) -> int | None:
     if not pages_raw:
         return None
 
-    import re
     total = 0
 
     # Cherche tous les patterns "A-B" ou "A"
@@ -122,8 +126,15 @@ def _count_pages(pages_raw: str | None) -> int | None:
         start_n = int(start)
         if end:
             end_n = int(end)
+            # Pagination abregée : "4591-6" = 4591-4596
+            # ou "S1-5" = S1-S5 (deja complet, end_n > start_n)
+            if end_n < start_n:
+                n_digits_end = len(str(end_n))
+                n_digits_start = len(str(start_n))
+                if n_digits_end < n_digits_start:
+                    end_n = int(str(start_n)[:-n_digits_end] + str(end_n))
             n = end_n - start_n + 1
-            if n > 0 and n < 500:
+            if 0 < n < 500:
                 total += n
             else:
                 total += 1
@@ -131,6 +142,7 @@ def _count_pages(pages_raw: str | None) -> int | None:
             total += 1
 
     return total if total > 0 else None
+
 
 def iter_articles(
     chunks: Iterator[bytes],
