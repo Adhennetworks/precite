@@ -11,41 +11,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from precite.config import get_settings
+from precite.schema import FEATURES_SCHEMA
 from precite.storage.s3 import get_s3_client
 from precite.utils.logging import get_logger
 
 log = get_logger(__name__)
-
-
-FEATURES_SCHEMA = pa.schema(
-    [
-        ("pmid", pa.string()),
-        ("year", pa.int32()),
-        ("n_references", pa.int32()),
-        ("mean_ref_age", pa.float32()),
-        ("title_len", pa.int32()),
-        ("abstract_len", pa.int32()),
-        ("n_pages", pa.int32()),
-        ("n_mesh", pa.int32()),
-        ("n_chemicals", pa.int32()),
-        ("n_grants", pa.int32()),
-        ("language_rank", pa.int8()),
-        ("journal_issn", pa.string()),
-        ("score_a", pa.float32()),
-        ("score_c", pa.float32()),
-        ("score_h", pa.float32()),
-        ("medline_status", pa.string()),
-        ("is_journal_article", pa.int8()),
-        ("is_review", pa.int8()),
-        ("is_clinical_trial", pa.int8()),
-        ("is_rct", pa.int8()),
-        ("is_meta_analysis", pa.int8()),
-        ("is_editorial", pa.int8()),
-        ("is_letter", pa.int8()),
-        ("is_comment", pa.int8()),
-        ("is_case_report", pa.int8()),
-    ]
-)
 
 
 class ParquetBatchWriter:

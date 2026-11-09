@@ -15,22 +15,13 @@ from pathlib import Path
 import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from precite.schema import API_COLUMNS
+
 FEATURES = ROOT / "data" / "features"
 PAPERS = ROOT / "data" / "papers"
 TMP = ROOT / "tmp_duckdb"
-
-
-# Colonnes exposees par l'API (meme schema que PAPERS_SCHEMA dans parquet_store.py)
-API_COLUMNS = [
-    "pmid", "year","medline_status", "batch_id", "ingested_at",
-    "n_references", "mean_ref_age", "title_len", "abstract_len",
-    "n_mesh", "n_chemicals", "n_grants", "language_rank",
-    "score_a", "score_c", "score_h","n_pages",
-    "is_journal_article", "is_review", "is_clinical_trial",
-    "is_rct", "is_meta_analysis", "is_editorial",
-    "is_letter", "is_comment", "is_case_report",
-    "citations_3y", "weighted_citations_3y",
-]
 
 
 def main() -> int:
@@ -52,13 +43,11 @@ def main() -> int:
 
     files_sql = ", ".join(f"'{f.as_posix()}'" for f in chunks)
 
-    # Colonnes disponibles dans les chunks (peut y avoir plus ou moins)
     available = con.execute(f"""
         DESCRIBE SELECT * FROM read_parquet('{chunks[0].as_posix()}')
     """).fetchall()
     avail_cols = {r[0] for r in available}
 
-    # Filtre les colonnes qu'on veut sur celles qui existent
     cols = [c for c in API_COLUMNS if c in avail_cols]
     missing = [c for c in API_COLUMNS if c not in avail_cols]
     if missing:
@@ -66,7 +55,6 @@ def main() -> int:
 
     print(f"Colonnes a extraire : {len(cols)}")
 
-    # Pour chaque decennie presente, ecrit un papers/decade=XXXX.parquet
     decades = con.execute(f"""
         SELECT DISTINCT CAST(year // 10 * 10 AS INTEGER) AS decade
         FROM read_parquet([{files_sql}], union_by_name=true)
