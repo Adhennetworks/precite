@@ -256,7 +256,6 @@ def train_rolling_cv_cmd(
     console.print(f"[bold green]{result['n_outer_folds']} outer x {result['n_inner_folds']} inner[/]")
     console.print()
 
-    # Outer agrege
     agg = result["outer_aggregate"]
     table = Table(title=f"Outer rolling ({window} ans)")
     table.add_column("Metrique", style="cyan")
@@ -267,7 +266,6 @@ def train_rolling_cv_cmd(
             table.add_row(k, f"{v:.4f}")
     console.print(table)
 
-    # Inner CV agrege
     inner = result["inner_cv_aggregate"]
     table2 = Table(title=f"CV interne {inner_folds}-fold (expanding window)")
     table2.add_column("Metrique", style="cyan")
@@ -280,7 +278,6 @@ def train_rolling_cv_cmd(
             table2.add_row(k, f"{m:.4f}", f"{s:.4f}" if s is not None else "-")
     console.print(table2)
 
-    # Detail outer par annee
     table3 = Table(title="Detail outer par annee")
     table3.add_column("Annee", style="cyan")
     table3.add_column("Train", justify="right")
@@ -377,14 +374,19 @@ def enrich_attach_cmd(
     output_parquet: Annotated[str, typer.Option("--output", "-o")],
     cache_path: Annotated[str, typer.Option("--cache")] = "data/icite/citations_3y_cache.pkl",
     horizon: Annotated[int, typer.Option("--horizon")] = 3,
-    snapshot_year: Annotated[int, typer.Option("--snapshot-year")] = 2026,
+    snapshot_year: Annotated[int | None, typer.Option("--snapshot-year")] = None,
 ) -> None:
     """Joint le cache OCC a un Parquet de features (instantane)."""
     from precite.enrich.cache import attach_citations
 
-    console.print(f"[cyan]Input :[/]   {input_parquet}")
-    console.print(f"[cyan]Output :[/]  {output_parquet}")
-    console.print(f"[cyan]Cache :[/]   {cache_path}")
+    # Resolution de snapshot_year via Settings si non fourni
+    if snapshot_year is None:
+        snapshot_year = get_settings().snapshot_year
+
+    console.print(f"[cyan]Input :[/]    {input_parquet}")
+    console.print(f"[cyan]Output :[/]   {output_parquet}")
+    console.print(f"[cyan]Cache :[/]    {cache_path}")
+    console.print(f"[cyan]Snapshot :[/] {snapshot_year}")
     console.print()
 
     summary = attach_citations(
@@ -416,10 +418,14 @@ def enrich_attach_batch_cmd(
     output_dir: Annotated[str, typer.Option("--output-dir", "-o")],
     cache_path: Annotated[str, typer.Option("--cache")] = "data/icite/citations_3y_cache.pkl",
     horizon: Annotated[int, typer.Option("--horizon")] = 3,
-    snapshot_year: Annotated[int, typer.Option("--snapshot-year")] = 2026,
+    snapshot_year: Annotated[int | None, typer.Option("--snapshot-year")] = None,
 ) -> None:
     """Attache les citations a tous les Parquet d'un dossier (recursif)."""
     from precite.enrich.cache import attach_citations
+
+    # Resolution de snapshot_year via Settings si non fourni
+    if snapshot_year is None:
+        snapshot_year = get_settings().snapshot_year
 
     input_root = Path(input_dir)
     output_root = Path(output_dir)
@@ -430,6 +436,7 @@ def enrich_attach_batch_cmd(
         raise typer.Exit(code=1)
 
     console.print(f"[cyan]{len(files)} fichiers a traiter[/]")
+    console.print(f"[cyan]Snapshot :[/] {snapshot_year}")
     console.print()
 
     total_rows = 0

@@ -67,6 +67,23 @@ CREATE TABLE IF NOT EXISTS target_completeness (
 """
 
 
+def _resolve_snapshot_defaults(
+    snapshot_year: int | None,
+    horizon_years: int | None,
+) -> tuple[int, int]:
+    """Resout les valeurs None via Settings, une seule fois."""
+    if snapshot_year is not None and horizon_years is not None:
+        return snapshot_year, horizon_years
+
+    from precite.config import get_settings
+    s = get_settings()
+    if snapshot_year is None:
+        snapshot_year = s.snapshot_year
+    if horizon_years is None:
+        horizon_years = s.horizon_years
+    return snapshot_year, horizon_years
+
+
 class PredictionsDB:
     def __init__(self, db_path: str | Path = "data/precite.db"):
         self.db_path = Path(db_path)
@@ -278,7 +295,7 @@ class PredictionsDB:
         if batch_id is not None:
             clauses.append("p.batch_id = ?")
             params.append(batch_id)
-            
+
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"""
             SELECT p.pmid, p.year, p.batch_id, p.ingested_at,
@@ -330,8 +347,8 @@ class PredictionsDB:
     def update_target_completeness(
         self,
         *,
-        snapshot_year: int = 2026,
-        horizon_years: int = 3,
+        snapshot_year: int | None = None,
+        horizon_years: int | None = None,
         year_min: int = 1980,
         year_max: int = 2030,
     ) -> int:
@@ -341,6 +358,10 @@ class PredictionsDB:
         Ex: avec snapshot 2026 et horizon 3, l'annee 2022 est complete,
         mais pas 2023 (cible partielle).
         """
+        snapshot_year, horizon_years = _resolve_snapshot_defaults(
+            snapshot_year, horizon_years
+        )
+
         now = datetime.now(UTC).isoformat()
         rows = []
         for year in range(year_min, year_max + 1):
@@ -401,7 +422,12 @@ class PredictionsDB:
         d["params"] = json.loads(d["params"]) if d["params"] else {}
         return d
 
-    def needs_retrain(self, model_type: str, horizon_years: int = 3, snapshot_year: int = 2026) -> dict:
+    def needs_retrain(
+        self,
+        model_type: str,
+        horizon_years: int | None = None,
+        snapshot_year: int | None = None,
+    ) -> dict:
         """Verifie si un nouveau modele production est necessaire.
 
         Regle : le modele production doit etre entraine jusqu'a
@@ -436,4 +462,4 @@ class PredictionsDB:
             "reason": "up to date",
             "current_model": prod["model_name"],
             "latest_target_year": latest,
-        }    
+        }

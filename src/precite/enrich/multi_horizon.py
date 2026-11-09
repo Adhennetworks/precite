@@ -23,12 +23,18 @@ log = get_logger(__name__)
 csv.field_size_limit(2**31 - 1)
 
 
+def _default_snapshot_year() -> int:
+    """Annee de reference, lue depuis Settings (PRECITE_SNAPSHOT_YEAR)."""
+    from precite.config import get_settings
+    return get_settings().snapshot_year
+
+
 def build_multi_horizon_cache(
     *,
     occ_zip: str | Path,
     year_map: dict[int, int],
     horizons: tuple[int, ...] = (1, 2, 3),
-    snapshot_year: int = 2026,
+    snapshot_year: int | None = None,
     cache_path: str | Path = "data/icite/citations_multi_horizon.pkl",
     force_rebuild: bool = False,
 ) -> Path:
@@ -36,6 +42,9 @@ def build_multi_horizon_cache(
 
     Sortie : dict { pmid: {1: n1, 2: n2, 3: n3} }
     """
+    if snapshot_year is None:
+        snapshot_year = _default_snapshot_year()
+
     cache_path = Path(cache_path)
 
     if cache_path.exists() and not force_rebuild:
@@ -47,6 +56,7 @@ def build_multi_horizon_cache(
         "multi_horizon.start",
         occ=str(occ_zip),
         horizons=list(horizons),
+        snapshot_year=snapshot_year,
     )
 
     # Structure : { cited_pmid: {horizon: count} }

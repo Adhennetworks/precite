@@ -34,8 +34,20 @@ SNAPSHOT_LABEL = "2026-08"
 ICITE_METADATA_URL = "https://ndownloader.figshare.com/files/68211877"
 OCC_URL = "https://ndownloader.figshare.com/files/68211523"
 
-# Annee de reference du snapshot : on exclut les articles trop recents
-SNAPSHOT_YEAR = 2026
+
+def _default_snapshot_year() -> int:
+    """Annee de reference du snapshot, lue depuis Settings.
+
+    Permet de surcharger via PRECITE_SNAPSHOT_YEAR sans toucher au code.
+    """
+    from precite.config import get_settings
+    return get_settings().snapshot_year
+
+
+# Annee de reference du snapshot : on exclut les articles trop recents.
+# Compatibilite ascendante : les appels existants `snapshot_year=SNAPSHOT_YEAR`
+# continuent de marcher.
+SNAPSHOT_YEAR = _default_snapshot_year()
 
 
 # --- Telechargement ---------------------------------------------------------
@@ -173,7 +185,7 @@ def _detect_columns(first_row: dict) -> tuple[str, str]:
     cited = (
         keys.get("cited_pmid")
         or keys.get("cited")
-        or keys.get("referenced")      # <-- ajout
+        or keys.get("referenced")
         or keys.get("referenced_pmid")
         or keys.get("target_pmid")
     )
@@ -183,13 +195,14 @@ def _detect_columns(first_row: dict) -> tuple[str, str]:
         )
     return citing, cited
 
+
 def build_truncated_citations(
     *,
     occ_zip: str | Path,
     year_map: dict[int, int],
     target_pmids: set[int],
     horizon_years: int = 3,
-    snapshot_year: int = SNAPSHOT_YEAR,
+    snapshot_year: int | None = None,
 ) -> dict[int, int]:
     """Compte pour chaque pmid cible les citations recues dans les N ans.
 
@@ -197,12 +210,16 @@ def build_truncated_citations(
 
     On ne garde que les articles cible dont on connait l'annee de publication.
     """
+    if snapshot_year is None:
+        snapshot_year = _default_snapshot_year()
+
     occ_zip = Path(occ_zip)
     log.info(
         "truncated_citations.start",
         occ=str(occ_zip),
         n_targets=len(target_pmids),
         horizon=horizon_years,
+        snapshot_year=snapshot_year,
     )
 
     citations: dict[int, int] = defaultdict(int)
@@ -286,7 +303,7 @@ def enrich_parquet(
     icite_zip: str | Path,
     occ_zip: str | Path,
     horizon_years: int = 3,
-    snapshot_year: int = SNAPSHOT_YEAR,
+    snapshot_year: int | None = None,
     cache_year_map: str | Path | None = "data/icite/year_map.pkl",
     target_year_max: int | None = None,
 ) -> dict[str, int | float]:
@@ -298,6 +315,9 @@ def enrich_parquet(
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
+
+    if snapshot_year is None:
+        snapshot_year = _default_snapshot_year()
 
     in_path = Path(input_path)
     out_path = Path(output_path)

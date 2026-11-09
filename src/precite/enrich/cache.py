@@ -33,6 +33,18 @@ log = get_logger(__name__)
 csv.field_size_limit(2**31 - 1)
 
 
+def _default_snapshot_year() -> int:
+    """Annee de reference, lue depuis Settings (PRECITE_SNAPSHOT_YEAR)."""
+    from precite.config import get_settings
+    return get_settings().snapshot_year
+
+
+def _default_horizon_years() -> int:
+    """Horizon par defaut, lu depuis Settings (PRECITE_HORIZON_YEARS)."""
+    from precite.config import get_settings
+    return get_settings().horizon_years
+
+
 # ─── Construction du cache ──────────────────────────────────────────────────
 
 def build_global_citations_cache(
@@ -170,9 +182,9 @@ def attach_citations(
     cache_path: str | Path = "data/icite/citations_3y_cache.pkl",
     weighted_cache_path: str | Path | None = "data/icite/weighted_citations_3y_cache.pkl",
     cache: dict[int, int] | None = None,
-    weighted_cache: dict[int, float] | None = None,   # <-- cle
-    horizon_years: int = 3,
-    snapshot_year: int = 2026,
+    weighted_cache: dict[int, float] | None = None,
+    horizon_years: int | None = None,
+    snapshot_year: int | None = None,
     col_name: str = "citations_3y",
     weighted_col_name: str = "weighted_citations_3y",
     flag_col: str = "has_enough_history",
@@ -183,10 +195,17 @@ def attach_citations(
     - citations_3y           : nb de citations dans la fenetre 3 ans
     - weighted_citations_3y  : somme des SJR des articles citants
     - has_enough_history     : True si l'article a eu 3 ans pleins
+
+    Si horizon_years ou snapshot_year sont None, ils sont lus depuis Settings.
     """
     import numpy as np
     import pyarrow as pa
     import pyarrow.parquet as pq
+
+    if horizon_years is None:
+        horizon_years = _default_horizon_years()
+    if snapshot_year is None:
+        snapshot_year = _default_snapshot_year()
 
     features_parquet = Path(features_parquet)
     output_parquet = Path(output_parquet)
