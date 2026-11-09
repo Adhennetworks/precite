@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from functools import lru_cache
 
 from precite.api.deps import get_store
 from precite.api.schemas import (
