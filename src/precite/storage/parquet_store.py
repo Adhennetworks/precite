@@ -26,6 +26,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from precite.routing import select_routing
+from precite.schema import PAPERS_SCHEMA
 from precite.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -75,28 +76,6 @@ def _execute_with_retry(
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
-
-PAPERS_SCHEMA = pa.schema([
-    ("pmid", pa.string()),
-    ("year", pa.int32()),
-    ("batch_id", pa.string()),
-    ("ingested_at", pa.string()),
-    ("medline_status", pa.string()),
-    ("n_pages", pa.int32()),
-    *[(c, pa.float64()) for c in [
-        "n_references", "mean_ref_age", "title_len", "abstract_len",
-        "n_mesh", "n_chemicals", "n_grants", "language_rank",
-        "score_a", "score_c", "score_h",
-    ]],
-    *[(c, pa.int8()) for c in [
-        "is_journal_article", "is_review", "is_clinical_trial",
-        "is_rct", "is_meta_analysis", "is_editorial",
-        "is_letter", "is_comment", "is_case_report",
-        "is_research_article", "has_enough_history",
-    ]],
-    ("citations_3y", pa.float64()),
-    ("weighted_citations_3y", pa.float64()),
-])
 
 PREDICTIONS_SCHEMA = pa.schema([
     ("pmid", pa.string()),

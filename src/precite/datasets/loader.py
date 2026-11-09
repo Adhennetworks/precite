@@ -10,27 +10,10 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
+from precite.schema import FEATURE_COLUMNS, FEATURE_TRANSFORMS
 from precite.utils.logging import get_logger
 
 log = get_logger(__name__)
-
-# ─── Transformations des features a queue lourde ───────────────────────────
-# Ces features sont transformees par arsinh au moment de la construction
-# de la matrice de design (et NON stockees transformees en base).
-#
-# Justification : n_references, mean_ref_age et abstract_len ont une queue
-# tres lourde. Les coefficients appris sur la plage normale (n_refs ~30)
-# produisent des extrapolations aberrantes sur les articles extremes
-# (n_refs > 1000), amplifiees par l'inverse sinh a la sortie.
-#
-# arsinh(x) ≈ log(2x) pour x grand, et arsinh(0) = 0. Cela borne la
-# contribution de ces features dans le predicteur lineaire.
-
-FEATURE_TRANSFORMS = {
-    "n_references": "arsinh",
-    "mean_ref_age": "arsinh",
-    "abstract_len": "arsinh",
-}
 
 
 def _apply_transforms(df: pd.DataFrame) -> pd.DataFrame:
@@ -42,29 +25,6 @@ def _apply_transforms(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = np.arcsinh(df[col].astype("float64"))
     return df
 
-FEATURE_COLUMNS = [
-    "n_references",
-    "mean_ref_age",
-    "title_len",
-    "abstract_len",
-    "n_mesh",
-    "n_pages",
-    "n_chemicals",
-    "n_grants",
-    "language_rank",
-    "score_a",
-    "score_c",
-    "score_h",
-    "is_journal_article",
-    "is_review",
-    "is_clinical_trial",
-    "is_rct",
-    "is_meta_analysis",
-    "is_editorial",
-    "is_letter",
-    "is_comment",
-    "is_case_report",
-]
 
 TARGET_CITATIONS = "citations"
 TARGET_WEIGHTED = "weighted_citations"
