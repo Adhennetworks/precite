@@ -25,6 +25,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from precite.schema import PAPERS_SCHEMA
 from precite.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -61,7 +62,6 @@ def _execute_with_retry(
         except Exception as exc:
             last_exc = exc
             err_str = str(exc).lower()
-            # Ne retry que sur les erreurs reseau transitoires
             if not any(k in err_str for k in (
                 "timeout", "connection", "dns", "http", "503", "502", "504",
                 "could not connect", "unable to connect",
@@ -73,29 +73,11 @@ def _execute_with_retry(
     raise last_exc  # type: ignore[misc]
 
 
-# ─── Schemas ────────────────────────────────────────────────────────────────
+# ─── Schemas specifiques a ce module ────────────────────────────────────────
 
-PAPERS_SCHEMA = pa.schema([
-    ("pmid", pa.string()),
-    ("year", pa.int32()),
-    ("batch_id", pa.string()),
-    ("ingested_at", pa.string()),
-    ("medline_status", pa.string()),
-    ("n_pages", pa.int32()),
-    *[(c, pa.float64()) for c in [
-        "n_references", "mean_ref_age", "title_len", "abstract_len",
-        "n_mesh", "n_chemicals", "n_grants", "language_rank",
-        "score_a", "score_c", "score_h",
-    ]],
-    *[(c, pa.int8()) for c in [
-        "is_journal_article", "is_review", "is_clinical_trial",
-        "is_rct", "is_meta_analysis", "is_editorial",
-        "is_letter", "is_comment", "is_case_report",
-        "is_research_article", "has_enough_history",
-    ]],
-    ("citations_3y", pa.float64()),
-    ("weighted_citations_3y", pa.float64()),
-])
+# Note : PAPERS_SCHEMA est importe depuis precite.schema (B4-2).
+# Les schemas ci-dessous sont specifiques aux predictions / registry /
+# target completeness et n'ont pas besoin d'etre partages.
 
 PREDICTIONS_SCHEMA = pa.schema([
     ("pmid", pa.string()),
@@ -116,8 +98,8 @@ REGISTRY_SCHEMA = pa.schema([
     ("year_min", pa.int32()),
     ("year_max", pa.int32()),
     ("n_train", pa.int64()),
-    ("metrics", pa.string()),   # JSON
-    ("params", pa.string()),    # JSON
+    ("metrics", pa.string()),
+    ("params", pa.string()),
     ("registered_at", pa.string()),
 ])
 
@@ -134,7 +116,7 @@ TARGET_COMPLETENESS_SCHEMA = pa.schema([
 
 class ParquetStore:
     HF_BASE = "https://huggingface.co/datasets/preciteproject/precite-data/resolve/main"
-    STATS_TTL = 3600.0  # 1 heure
+    STATS_TTL = 3600.0
 
     def __init__(
         self,
@@ -163,7 +145,6 @@ class ParquetStore:
         import threading
         self._lock = threading.RLock()
 
-        # Caches DuckDB
         try:
             self._con.execute("SET enable_http_metadata_cache=true")
             self._con.execute("SET parquet_metadata_cache=true")
@@ -223,8 +204,6 @@ class ParquetStore:
                 token=self.hf_token,
             )
         except Exception as exc:
-            # Fail-fast : mieux vaut une API qui ne demarre pas qu'une API
-            # qui repond "0 papers" a toutes les requetes.
             log.error("remote.listing_failed", error=str(exc))
             raise RuntimeError(
                 f"Impossible de lister le repo HF '{self.hf_repo}' "
@@ -281,8 +260,6 @@ class ParquetStore:
                 )
                 log.info("remote.downloaded", file=name)
             except Exception as exc:
-                # pmid_index.parquet est critique : sans lui, get_paper()
-                # retournera None pour TOUS les PMIDs. Fail-fast.
                 if name == "pmid_index.parquet":
                     log.error("remote.critical_download_failed", file=name, error=str(exc))
                     raise RuntimeError(
@@ -293,7 +270,6 @@ class ParquetStore:
                 log.warning("remote.download_failed", file=name, error=str(exc))
 
     def _build_prediction_index(self) -> dict:
-        """Construit un index {family: {annuals: {year: url}, production: {year: url}}}."""
         import re
         index = {
             "lm": {"annuals": {}, "production": {}},
@@ -312,7 +288,6 @@ class ParquetStore:
         return index
 
     def _execute(self, query, params=None):
-        """Execute une requete DuckDB avec lock (thread-safe)."""
         with self._lock:
             if params is not None:
                 return self._con.execute(query, params)
@@ -321,7 +296,7 @@ class ParquetStore:
     def con(self) -> duckdb.DuckDBPyConnection:
         return self._con
 
-    # ─── Helpers glob -> expression SQL ─────────────────────────────────
+    # ─── Helpers glob ───────────────────────────────────────────────────
 
     def papers_dir_glob(self, decade: int | None = None) -> str:
         if self.remote:
@@ -415,7 +390,6 @@ class ParquetStore:
             r.setdefault("batch_id", batch_id)
             r.setdefault("ingested_at", now)
 
-            # Normalise int8
             for c in int8_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -426,7 +400,6 @@ class ParquetStore:
                     except (ValueError, TypeError):
                         r[c] = 0
 
-            # Normalise int32 (n_pages)
             for c in int_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -437,7 +410,6 @@ class ParquetStore:
                     except (ValueError, TypeError, OverflowError):
                         r[c] = None
 
-            # Normalise float
             for c in float_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -466,7 +438,6 @@ class ParquetStore:
                 new_pmids = {r["pmid"] for r in decade_rows}
                 existing = existing[~existing["pmid"].astype(str).isin(new_pmids)]
                 existing_rows = existing.to_dict("records")
-                # Nettoie les nan dans les anciens rows
                 for row in existing_rows:
                     for c in int_cols:
                         v = row.get(c)
@@ -480,7 +451,6 @@ class ParquetStore:
             else:
                 all_rows = decade_rows
 
-            # Nettoyage final avant from_pylist
             for row in all_rows:
                 for c in int_cols:
                     v = row.get(c)
@@ -492,10 +462,6 @@ class ParquetStore:
                         row[c] = 0
 
             table = pa.Table.from_pylist(all_rows, schema=PAPERS_SCHEMA)
-            # Ecriture atomique : tmp + os.replace. Si le process crash
-            # pendant l'ecriture, part_file garde son ancienne version
-            # intacte (pas de corruption), et le .tmp est orphelin (a
-            # nettoyer manuellement si besoin).
             tmp_file = part_file.with_suffix(".parquet.tmp")
             pq.write_table(table, tmp_file, compression="zstd")
             os.replace(tmp_file, part_file)
@@ -504,7 +470,7 @@ class ParquetStore:
         log.info("parquet.papers.written", n=n_written, decades=len(by_decade))
         return n_written
 
-    # ─── PREDICTIONS (write : local uniquement) ─────────────────────────
+    # ─── PREDICTIONS ────────────────────────────────────────────────────
 
     def write_predictions(
         self,
@@ -706,9 +672,6 @@ class ParquetStore:
     # ─── QUERIES (DuckDB) ───────────────────────────────────────────────
 
     def get_paper(self, pmid: str) -> dict | None:
-        # Note : on ne met PAS _execute_with_retry ici. get_paper() catch
-        # deja les erreurs et retourne None (le 404 sur PMID inexistant
-        # est un cas normal, pas une erreur transitoire).
         pmid_str = str(pmid).strip()
         index_file = self.root / "pmid_index.parquet"
 
@@ -841,7 +804,7 @@ class ParquetStore:
             log.warning("search_papers.failed", error=str(exc))
             return []
 
-    # ─── STATS (avec cache) ─────────────────────────────────────────────
+    # ─── STATS ──────────────────────────────────────────────────────────
 
     def stats(self) -> dict:
         now = time.time()
@@ -918,7 +881,7 @@ class ParquetStore:
                 r = _execute_with_retry(
                     self._con,
                     f"SELECT SUM(num_rows) FROM parquet_file_metadata([{urls_sql}])",
-                    remote=True,  # force remote, cette fonction n'est appelee qu'en remote
+                    remote=True,
                 ).fetchone()
             return int(r[0]) if r and r[0] else 0
         except Exception as exc:
