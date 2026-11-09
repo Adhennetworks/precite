@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]         # toutes les branches
   pull_request:
     branches: [main]
-  workflow_dispatch:        # ← debloque le job live
+  workflow_dispatch:          # pour lancer les live manuellement
 
 jobs:
   test:
@@ -30,12 +30,11 @@ jobs:
         run: python scripts/test_transforms.py
 
       - name: Unit + integration tests
-        # addopts exclut deja live et quality, mais on le rend explicite
         run: pytest tests/ -m "not live and not quality" -v --cov=precite --cov-report=term-missing
 
   live:
     if: github.event_name == 'workflow_dispatch'
-    needs: test              # les live ne tournent que si unit+integration passent
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,7 +47,5 @@ jobs:
 
       - name: Live API tests (staging only)
         env:
-          # Defini dans Settings > Variables > Actions > PRECITE_STAGING_URL
-          # Si absent, les tests skip automatiquement
           PRECITE_API_URL: ${{ vars.PRECITE_STAGING_URL }}
         run: pytest tests/live -m live -v
