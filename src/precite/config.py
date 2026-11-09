@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     write_batch_size: int = 50_000
     row_group_size: int = 100_000
     log_level: str = "INFO"
+    
+    # Reference temporelle (snapshot iCite/OCC)
+    snapshot_year: int = 2026
+    horizon_years: int = 3
 
     # MLflow
     mlflow_tracking_uri: str = "sqlite:///mlflow.db"
