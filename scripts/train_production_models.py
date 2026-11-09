@@ -26,7 +26,6 @@ sys.path.insert(0, str(ROOT / "src"))
 import mlflow
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
 from precite.datasets.loader import (
     FEATURE_COLUMNS,
@@ -90,14 +89,25 @@ def train_production(
         print(f"  Trop peu d'articles ({len(train_df):,})", flush=True)
         return None
 
-    # Split train/test AVANT le fit (test set = out-of-sample pour le DLE)
-    train_split, test_split = train_test_split(
-        train_df,
-        test_size=0.2,
-        random_state=42,
-    )
+    # Split temporel strict : les N dernieres annees = test, le reste = train.
+    # Un split aleatoire sur des donnees temporelles cree du leakage :
+    # un article de 2022 peut tomber dans train ET dans test.
+    years = sorted(train_df["year"].unique())
+    if len(years) < 2:
+        print(f"  Pas assez d'annees distinctes ({len(years)}) pour split", flush=True)
+        return None
+
+    # Garde ~20% des annees les plus recentes en test (min 1 an)
+    n_test_years = max(1, round(len(years) * 0.2))
+    test_years = set(years[-n_test_years:])
+    train_years = set(years) - test_years
+
+    train_split = train_df[train_df["year"].isin(train_years)].copy()
+    test_split = train_df[train_df["year"].isin(test_years)].copy()
+
     print(
-        f"  Split train/test : {len(train_split):,} train / {len(test_split):,} test",
+        f"  Split temporel : train <= {max(train_years)} ({len(train_split):,} rows), "
+        f"test {min(test_years)}-{max(test_years)} ({len(test_split):,} rows)",
         flush=True,
     )
 
