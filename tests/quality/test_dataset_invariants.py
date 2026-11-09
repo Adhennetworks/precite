@@ -11,6 +11,8 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
+pytestmark = pytest.mark.quality
+
 CHUNKS = (
     list(Path("data/features").glob("chunk-*.parquet"))
     if Path("data/features").exists()

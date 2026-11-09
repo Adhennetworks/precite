@@ -71,7 +71,8 @@ testpaths = ["tests"]
 markers = [
     "unit: tests unitaires rapides (< 100ms)",
     "integration: tests d'integration (I/O local, < 5s)",
-    "quality: tests de qualite de donnees (sur les vrais chunks, lents)",
-    "live: tests contre l'API deployee (necessite reseau)",
+    "quality: invariants de donnees (scan complet, lent, opt-in)",
+    "live: tests contre une instance deployee (opt-in, workflow_dispatch)",
 ]
-addopts = "-q --strict-markers"
+# Par defaut : on exclut live ET quality (trop lents pour la CI PR)
+addopts = "-m 'not live and not quality'"

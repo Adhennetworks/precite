@@ -101,7 +101,6 @@ def ingest_many(
     *,
     auto_predict: bool = False,
     local_dir: str | Path | None = None,
-    db_path: str | None = None,
     skip_pmids: set[str] | None = None,
 ) -> list[dict[str, int]]:
     """Ingere plusieurs fichiers sequentiellement."""
@@ -121,7 +120,7 @@ def ingest_many(
             batch_id = url.rsplit("/", 1)[-1].replace(".xml.gz", "").replace(".xml", "")
             source = f"s3://{s.s3_bucket}/{_prefix_from_url(url)}"
             try:
-                psummary = predict_batch(source=source, batch_id=batch_id, db_path=db_path)
+                psummary = predict_batch(source=source, batch_id=batch_id)
                 summary["predictions"] = psummary["predictions"]
                 summary["models"] = psummary["models"]
             except Exception as exc:

@@ -2,7 +2,7 @@ name: Annual Retrain
 
 on:
   schedule:
-    # 1er juillet de chaque année à 3h UTC
+    # 1er juillet de chaque annee a 3h UTC
     - cron: "0 3 1 7 *"
   workflow_dispatch:
 
@@ -68,7 +68,7 @@ jobs:
             --start 1985 \
             --end ${{ steps.year.outputs.current }}
 
-      - name: Retrain production models
+      - name: Retrain production models (with train/test split)
         run: |
           echo "=== Training production models (target complete = n-3) ==="
           python scripts/train_production_models.py --all
@@ -102,6 +102,30 @@ jobs:
         run: |
           python scripts/upload_mlflow_to_hf.py
 
+      - name: Upload reference sets to HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          from pathlib import Path
+          import os
+          api = HfApi()
+          ref_dir = Path('data/reference_sets')
+          if ref_dir.exists():
+              for f in ref_dir.glob('*.parquet'):
+                  api.upload_file(
+                      path_or_fileobj=str(f),
+                      path_in_repo=f'reference_sets/{f.name}',
+                      repo_id='preciteproject/precite-data',
+                      repo_type='dataset',
+                      token=os.environ['HF_TOKEN'],
+                  )
+                  print(f'Uploaded {f.name}')
+          else:
+              print('Pas de reference_sets/')
+          "
+
       - name: Notify success
         if: success()
-        run: echo "✅ Retrain annuel terminé"
+        run: echo "Retrain annuel termine avec succes"

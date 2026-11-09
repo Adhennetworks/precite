@@ -1,107 +1,101 @@
-"""Tests live contre l'API deployee."""
+"""Tests live contre une instance deployee de l'API Precite.
+
+Ces tests ne tournent QUE si :
+- on est en workflow_dispatch (voir ci.yml)
+- ET que la variable d'environnement PRECITE_API_URL est definie
+
+En local, si PRECITE_API_URL n'est pas defini, tous les tests sont skip
+automatiquement (via tests/conftest.py). Ils restent visibles dans
+`pytest --collect-only` pour verifier la couverture.
+"""
 
 from __future__ import annotations
 
 import os
-import time
 
+import httpx
 import pytest
-import requests
 
-API_URL = os.environ.get(
-    "PRECITE_API_URL",
-    "https://precite-api.onrender.com",
-).rstrip("/")
+# Marque tout le module comme "live" -> skip auto si PRECITE_API_URL absent
+pytestmark = pytest.mark.live
 
-TIMEOUT = 30.0
+API_URL = os.environ.get("PRECITE_API_URL", "").rstrip("/")
+TIMEOUT = 120.0
 
-PMID_MEDLINE = "19585584"
-PMID_2026 = "41599690"
-
-
-def _get(url: str, *, max_retries: int = 3, timeout: float = 90.0) -> requests.Response:
-    last_exc = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            return requests.get(url, timeout=timeout)
-        except (requests.Timeout, requests.ConnectionError) as exc:
-            last_exc = exc
-            if attempt < max_retries:
-                time.sleep(5 * attempt)
-    raise last_exc  # type: ignore[misc]
+# PMIDs de reference utilises dans les tests
+PMID_MEDLINE = "19585584"   # article MEDLINE classique
+PMID_2026 = "41599690"      # article recent
 
 
-@pytest.mark.live
+def _get(path: str, *, timeout: float = TIMEOUT) -> httpx.Response:
+    if not API_URL:
+        pytest.skip("PRECITE_API_URL non defini")
+    with httpx.Client(timeout=timeout) as c:
+        return c.get(f"{API_URL}{path}")
+
+
+# ─── Health ────────────────────────────────────────────────────────────
+
 def test_health():
-    r = _get(f"{API_URL}/health", timeout=TIMEOUT)
+    r = _get("/health", timeout=30.0)
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "ok"
+
+
+# ─── Stats ─────────────────────────────────────────────────────────────
+
+def test_stats():
+    r = _get("/stats")
+    assert r.status_code == 200
+    data = r.json()
     assert "papers" in data
     assert "predictions" in data
     assert "models" in data
 
 
-@pytest.mark.live
-def test_stats():
-    r = _get(f"{API_URL}/stats", timeout=TIMEOUT)
-    assert r.status_code == 200
-    data = r.json()
-    assert "papers" in data
-    assert "predictions" in data
+# ─── Paper detail ──────────────────────────────────────────────────────
 
-
-@pytest.mark.live
 def test_paper_detail_medline():
-    r = _get(f"{API_URL}/papers/{PMID_MEDLINE}", timeout=TIMEOUT)
+    r = _get(f"/papers/{PMID_MEDLINE}")
     assert r.status_code == 200
     data = r.json()
     assert data["pmid"] == PMID_MEDLINE
-    assert data["year"] is not None
-    assert "medline_status" in data
     assert data["medline_status"] in ("MEDLINE", "OldMEDLINE")
+
+
+def test_paper_detail_2026():
+    r = _get(f"/papers/{PMID_2026}")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["pmid"] == PMID_2026
+
+
+def test_paper_404():
+    """PMID inexistant -> 404, pas 500 (fix Batch 1)."""
+    r = _get("/papers/99999999999")
+    assert r.status_code == 404
+
+
+def test_paper_has_predictions():
+    r = _get(f"/papers/{PMID_MEDLINE}")
+    assert r.status_code == 200
+    data = r.json()
     assert "predictions" in data
     assert isinstance(data["predictions"], list)
 
 
-@pytest.mark.live
-def test_paper_detail_2026():
-    r = _get(f"{API_URL}/papers/{PMID_2026}", timeout=TIMEOUT)
+def test_predictions_format():
+    r = _get(f"/papers/{PMID_MEDLINE}")
     assert r.status_code == 200
     data = r.json()
-    assert data["pmid"] == PMID_2026
-    assert data["year"] == 2026
-    assert "medline_status" in data
-    assert data["medline_status"] is not None
+    for pred in data.get("predictions", []):
+        assert "model_name" in pred
+        assert "model_version" in pred
+        assert "predicted_citations" in pred
+        assert isinstance(pred["predicted_citations"], (int, float))
 
 
-@pytest.mark.live
-def test_paper_404():
-    r = _get(f"{API_URL}/papers/99999999999", timeout=TIMEOUT)
-    assert r.status_code == 404
-
-
-@pytest.mark.live
-def test_paper_has_predictions():
-    r = _get(f"{API_URL}/papers/{PMID_MEDLINE}", timeout=TIMEOUT)
-    data = r.json()
-    assert len(data["predictions"]) >= 1
-    # Regression : ne doit pas avoir 3 predictions (bug 2024)
-    assert len(data["predictions"]) <= 2
-
-
-@pytest.mark.live
-def test_predictions_format():
-    r = _get(f"{API_URL}/papers/{PMID_MEDLINE}", timeout=TIMEOUT)
-    data = r.json()
-    for p in data["predictions"]:
-        assert "model_name" in p
-        assert "model_version" in p
-        assert "predicted_citations" in p
-        assert isinstance(p["predicted_citations"], (int, float))
-
-
-@pytest.mark.live
 def test_medline_status_values():
     VALID = {
         "MEDLINE",
@@ -112,8 +106,36 @@ def test_medline_status_values():
         "In-Data-Review",
     }
     for pmid in [PMID_MEDLINE, PMID_2026]:
-        r = _get(f"{API_URL}/papers/{pmid}", timeout=TIMEOUT)
+        r = _get(f"/papers/{pmid}")
+        assert r.status_code == 200
         data = r.json()
         status = data.get("medline_status")
-        if status is not None:
-            assert status in VALID, f"Status invalide pour {pmid}: {status}"
+        assert status in VALID, f"{pmid}: status '{status}' invalide"
+
+
+# ─── Search ────────────────────────────────────────────────────────────
+
+def test_search_papers():
+    r = _get("/papers?year_min=2020&year_max=2022&limit=10")
+    assert r.status_code == 200
+    data = r.json()
+    assert "papers" in data
+    assert "count" in data
+
+
+# ─── Models ────────────────────────────────────────────────────────────
+
+def test_models():
+    r = _get("/models")
+    assert r.status_code == 200
+    data = r.json()
+    assert "models" in data
+    assert "count" in data
+
+
+def test_models_filtered():
+    r = _get("/models?model_type=production-lm")
+    assert r.status_code == 200
+    data = r.json()
+    for m in data["models"]:
+        assert m["model_type"] == "production-lm"

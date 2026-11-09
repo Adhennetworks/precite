@@ -77,7 +77,7 @@ def get_production_model_info(con: duckdb.DuckDBPyConnection) -> dict | None:
 
 
 def load_training_sample(
-    con: duckdb.DuckDBPyConnection, year_min: int, year_max: int, per_year: int = 20000
+    con: duckdb.DuckDBPyConnection, year_min: int, year_max: int, n: int = 100000
 ) -> pd.DataFrame:
     cols = ", ".join(CRITICAL_FEATURES)
     years = list(range(year_min, year_max + 1))
@@ -85,11 +85,12 @@ def load_training_sample(
     queries = []
     for y in years:
         queries.append(f"""
-            SELECT {cols}
-            FROM read_parquet('{CHUNKS_GLOB}')
-            WHERE year = {y}
-            USING SAMPLE {per_year} ROWS (reservoir, 42)
+            (SELECT {cols}
+             FROM read_parquet('{CHUNKS_GLOB}', union_by_name=true)
+             WHERE year = {y}
+             LIMIT {n})
         """)
+
     return con.execute(" UNION ALL ".join(queries)).fetchdf()
 
 
@@ -99,9 +100,9 @@ def load_new_data(
     cols = ", ".join(CRITICAL_FEATURES)
     query = f"""
         SELECT {cols}
-        FROM read_parquet('{CHUNKS_GLOB}')
+        FROM read_parquet('{CHUNKS_GLOB}', union_by_name=true)
         WHERE year = {year}
-        USING SAMPLE {n} ROWS (reservoir, 42)
+        LIMIT {n}
     """
     return con.execute(query).fetchdf()
 
@@ -301,8 +302,25 @@ def main() -> int:
     # === Prediction drift ===
     print("Calcul du drift (prédictions)...")
     pred_drift = None
-    ref_preds_df = load_predictions_for_year(con, prod["year_max"], prod["model_name"])
+
+    # Référence : year_max (2022), sinon première année disponible dans le fichier
+    ref_year = prod["year_max"]
+    ref_preds_df = load_predictions_for_year(con, ref_year, prod["model_name"])
+
+    if len(ref_preds_df) == 0:
+        pred_file = PREDICTIONS_DIR / f"model={prod['model_name']}.parquet"
+        if pred_file.exists():
+            import pyarrow.parquet as pq
+            df_years = pq.read_table(pred_file, columns=["year"]).to_pandas()
+            if len(df_years) > 0:
+                ref_year = int(df_years["year"].min())
+                print(f"  Fallback référence sur {ref_year} (year_max={prod['year_max']} absent)")
+                ref_preds_df = load_predictions_for_year(con, ref_year, prod["model_name"])
+
     cur_preds_df = load_predictions_for_year(con, current_year, prod["model_name"])
+
+    print(f"  Ref : {ref_year} ({len(ref_preds_df):,} lignes)")
+    print(f"  Cur : {current_year} ({len(cur_preds_df):,} lignes)")
 
     if len(ref_preds_df) > 0 and len(cur_preds_df) > 0:
         pred_drift = compute_prediction_drift(
@@ -314,7 +332,7 @@ def main() -> int:
             print(f"  KS stat  : {pred_drift['ks_stat']:.3f}")
             print(f"  Drift    : {'⚠️ OUI' if pred_drift['ks_drift_detected'] else '✅ NON'}")
     else:
-        print("  Prédictions indisponibles (fichier manquant)")
+        print(f"  Prédictions indisponibles (ref={len(ref_preds_df)}, cur={len(cur_preds_df)})")
 
     # === Niveau d'alerte ===
     if drift_share >= args.drift_share_crit:
