@@ -62,3 +62,7 @@ test_pubmed.gz
 # === HuggingFace cache ===
 .cache/
 huggingface/
+
+# Local debug scripts (not part of the project)
+check_mlflow.py
+check_predictions.py
