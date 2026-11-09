@@ -74,44 +74,58 @@ def _metrics_on_arsinh(
     X_train: pd.DataFrame,
     X_test: pd.DataFrame,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float], dict[str, float]]:
-    """Calcule les metriques sur l'echelle arsinh ET l'echelle originale.
+    """Calcule les metriques sur une echelle COMMUNE (arsinh) et originale.
 
-    Retourne (train_arsinh, test_arsinh, train_original, test_original).
+    Echelle arsinh (principale) :
+      - LM  : predict_transformed() retourne deja arsinh(z)
+      - NB  : predict() retourne mu ; on applique arcsinh(mu)
+      - Dans les deux cas, on compare a arcsinh(y_true).
+      -> Les metriques sont comparables entre LM et NB.
+
+    Echelle originale (secondaire) :
+      - LM  : sinh(z) peut exploser sur les extremes
+      - NB  : mu directement
+      - Interessant pour l'interpretation, pas pour comparer les modeles.
+
+    Retourne (train_arsinh, test_arsinh, train_orig, test_orig).
     """
-    # Echelle arsinh
-    y_train_t = np.arcsinh(y_train.values)
-    y_test_t = np.arcsinh(y_test.values)
+    y_train_arr = np.asarray(y_train.values, dtype="float64")
+    y_test_arr = np.asarray(y_test.values, dtype="float64")
+
+    # ─── Echelle arsinh (commune) ──────────────────────────────────────
+    y_train_t = np.arcsinh(y_train_arr)
+    y_test_t = np.arcsinh(y_test_arr)
 
     if hasattr(model, "predict_transformed"):
+        # LM : predict_transformed retourne arsinh(z)
         y_pred_train_t = model.predict_transformed(X_train)
         y_pred_test_t = model.predict_transformed(X_test)
     else:
-        # Fallback pour NB : predire sur l'echelle log
-        y_pred_train_t = np.log1p(model.predict(X_train))
-        y_pred_test_t = np.log1p(model.predict(X_test))
+        # NB : predict retourne mu (counts positifs), on applique arcsinh
+        y_pred_train_t = np.arcsinh(model.predict(X_train))
+        y_pred_test_t = np.arcsinh(model.predict(X_test))
 
     train_arsinh = compute_metrics(y_train_t, y_pred_train_t).to_dict()
     train_arsinh.update(_robust_metrics(y_train_t, y_pred_train_t))
     test_arsinh = compute_metrics(y_test_t, y_pred_test_t).to_dict()
     test_arsinh.update(_robust_metrics(y_test_t, y_pred_test_t))
 
-    # Echelle originale (interpretable, mais explose sur sinh)
+    # ─── Echelle originale ─────────────────────────────────────────────
     y_pred_train = model.predict(X_train)
     y_pred_test = model.predict(X_test)
 
-    train_orig = compute_metrics(y_train.values, y_pred_train).to_dict()
-    train_orig.update(_robust_metrics(y_train.values, y_pred_train))
-    test_orig = compute_metrics(y_test.values, y_pred_test).to_dict()
-    test_orig.update(_robust_metrics(y_test.values, y_pred_test))
+    train_orig = compute_metrics(y_train_arr, y_pred_train).to_dict()
+    train_orig.update(_robust_metrics(y_train_arr, y_pred_train))
+    test_orig = compute_metrics(y_test_arr, y_pred_test).to_dict()
+    test_orig.update(_robust_metrics(y_test_arr, y_pred_test))
 
-    # Prefixer pour distinguer
+    # Prefixer pour distinguer dans MLflow
     train_arsinh = {f"arsinh_{k}": v for k, v in train_arsinh.items() if v is not None}
     test_arsinh = {f"arsinh_{k}": v for k, v in test_arsinh.items() if v is not None}
     train_orig = {f"orig_{k}": v for k, v in train_orig.items() if v is not None}
     test_orig = {f"orig_{k}": v for k, v in test_orig.items() if v is not None}
 
     return train_arsinh, test_arsinh, train_orig, test_orig
-
 
 def _filter_for_training(df: pd.DataFrame, target: str) -> pd.DataFrame:
     """Filtrage commun."""
