@@ -180,8 +180,15 @@ class ParquetStore:
                 token=self.hf_token,
             )
         except Exception as exc:
+            # Fail-fast : mieux vaut une API qui ne demarre pas qu'une API
+            # qui repond "0 papers" a toutes les requetes.
             log.error("remote.listing_failed", error=str(exc))
-            all_files = []
+            raise RuntimeError(
+                f"Impossible de lister le repo HF '{self.hf_repo}' "
+                f"(token {'defini' if self.hf_token else 'manquant'}). "
+                f"Verifie HF_TOKEN et la connectivite reseau. "
+                f"Erreur : {exc}"
+            ) from exc
 
         self._papers_files = [
             f"{self.HF_BASE}/{f}"
@@ -231,6 +238,15 @@ class ParquetStore:
                 )
                 log.info("remote.downloaded", file=name)
             except Exception as exc:
+                # pmid_index.parquet est critique : sans lui, get_paper()
+                # retournera None pour TOUS les PMIDs. Fail-fast.
+                if name == "pmid_index.parquet":
+                    log.error("remote.critical_download_failed", file=name, error=str(exc))
+                    raise RuntimeError(
+                        f"Impossible de telecharger {name} depuis HF. "
+                        f"get_paper() sera casse sans ce fichier. "
+                        f"Erreur : {exc}"
+                    ) from exc
                 log.warning("remote.download_failed", file=name, error=str(exc))
 
     def _build_prediction_index(self) -> dict:
