@@ -433,7 +433,13 @@ class ParquetStore:
                         row[c] = 0
 
             table = pa.Table.from_pylist(all_rows, schema=PAPERS_SCHEMA)
-            pq.write_table(table, part_file, compression="zstd")
+            # Ecriture atomique : tmp + os.replace. Si le process crash
+            # pendant l'ecriture, part_file garde son ancienne version
+            # intacte (pas de corruption), et le .tmp est orphelin (a
+            # nettoyer manuellement si besoin).
+            tmp_file = part_file.with_suffix(".parquet.tmp")
+            pq.write_table(table, tmp_file, compression="zstd")
+            os.replace(tmp_file, part_file)
             n_written += len(decade_rows)
 
         log.info("parquet.papers.written", n=n_written, decades=len(by_decade))
