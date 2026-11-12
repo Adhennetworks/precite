@@ -4,23 +4,19 @@ Utilise sm.GLM avec family=NegativeBinomial au lieu de sm.NegativeBinomial
 (MLE direct). IRLS est plus stable numeriquement sur les datasets a queue
 lourde (features tres heterogenes, articles extremes).
 
-Le NB est un GLM avec log-link. Les metriques principales sont les pseudo-R²
-(GLMs n'ont pas de R² classique) :
-- McFadden       : 1 - llf / ll_null
+Strategie de fit :
+1. Fit initial avec Poisson (GLM IRLS, tres stable)
+2. Fit NB (GLM IRLS, start_params = Poisson params)
+3. Fallback MLE classique si IRLS echoue
+
+Metriques :
+- McFadden       : 1 - llf / ll_null (calcule manuellement)
 - Cox-Snell      : 1 - exp(2/n * (ll_null - llf))
 - Nagelkerke     : Cox-Snell normalise entre 0 et 1
-
-Ainsi que AIC, BIC, log-vraisemblance et alpha (dispersion).
-
-Strategie :
-1. Fit initial avec Poisson (IRLS, tres stable)
-2. Fit NB (IRLS, start_params = Poisson params)
-3. Si NB echoue, fallback sur sm.NegativeBinomial (MLE classique)
+- AIC, BIC, log-vraisemblance, alpha (fixe a 1.0 dans la version GLM)
 """
 
 from __future__ import annotations
-
-import contextlib
 
 import numpy as np
 import pandas as pd
@@ -52,12 +48,10 @@ class NegativeBinomialModel(BaseModel):
         Xc = sm.add_constant(X, has_constant="add")
         y_arr = y.values.astype(float)
 
-        # ─── Fit du modele complet ─────────────────────────────────────
-        # Strategie : GLM Poisson d'abord (IRLS stable), puis GLM NB
-        # (IRLS avec start_params du Poisson). Fallback MLE si echec.
         self._fit_method = "unknown"
         self._result = None
 
+        # ─── Fit du modele complet ─────────────────────────────────────
         try:
             # 1. Fit Poisson (IRLS) pour initialiser
             log.info("nb.fit.poisson_init", n=len(y_arr))
@@ -83,9 +77,6 @@ class NegativeBinomialModel(BaseModel):
             log.info(
                 "nb.fit.glm_ok",
                 converged=converged,
-                iterations=getattr(self._result, "fit_history", {}).get(
-                    "iteration", "?"
-                ),
             )
 
         except Exception as exc_glm:
@@ -126,26 +117,9 @@ class NegativeBinomialModel(BaseModel):
         except Exception as exc:
             log.warning("nb.null_ll_failed", error=str(exc)[:200])
 
-        # ─── Calcul des pseudo-R² ─────────────────────────────────────
+        # ─── Log final ────────────────────────────────────────────────
         llf = float(self._result.llf)
         n = int(self._result.nobs)
-
-        try:
-            r2_mcfadden = (
-                1.0 - (llf / self._ll_null) if self._ll_null != 0 else 0.0
-            )
-        except Exception:
-            r2_mcfadden = 0.0
-
-        try:
-            r2_cox_snell = 1.0 - np.exp(2.0 / n * (self._ll_null - llf))
-            max_r2_cs = 1.0 - np.exp(2.0 / n * self._ll_null)
-            r2_nagelkerke = (
-                r2_cox_snell / max_r2_cs if max_r2_cs > 0 else 0.0
-            )
-        except Exception:
-            r2_cox_snell = 0.0
-            r2_nagelkerke = 0.0
 
         log.info(
             "nb.fit",
@@ -153,9 +127,6 @@ class NegativeBinomialModel(BaseModel):
             n=n,
             aic=round(float(self._result.aic), 1),
             alpha=1.0,
-            pseudo_r2_mcfadden=round(r2_mcfadden, 4),
-            pseudo_r2_cox_snell=round(r2_cox_snell, 4),
-            pseudo_r2_nagelkerke=round(r2_nagelkerke, 4),
             llf=round(llf, 1),
             ll_null=round(self._ll_null, 1),
             features=len(self._features),
@@ -195,16 +166,18 @@ class NegativeBinomialModel(BaseModel):
             raise RuntimeError("modele non entraine")
         params = self._result.params
 
-        # Extraire const et coefficients des features
         if hasattr(params, "items"):
+            # GLMResults et RegressionResults : params est une Series
             intercept = float(params["const"])
             coef = {
                 f: float(params[f]) for f in self._features if f in params.index
             }
         else:
-            # Params est un array (rare, fallback)
+            # Fallback : params est un array (rare)
             intercept = float(params[0])
-            coef = {f: float(params[i + 1]) for i, f in enumerate(self._features)}
+            coef = {
+                f: float(params[i + 1]) for i, f in enumerate(self._features)
+            }
 
         return {
             "coef": coef,
@@ -214,7 +187,13 @@ class NegativeBinomialModel(BaseModel):
         }
 
     def metrics_dict(self) -> dict[str, float]:
-        """Metriques GLM standard."""
+        """Metriques GLM standard.
+
+        Note : McFadden est calcule manuellement (1 - llf/ll_null).
+        r.prsquared n'existe PAS sur GLMResults (uniquement sur
+        RegressionResults / MLE), donc les versions precedentes affichaient
+        McFadden=0 par defaut quand la cle etait absente du dict.
+        """
         if not self._fitted:
             return {}
         r = self._result
@@ -227,12 +206,13 @@ class NegativeBinomialModel(BaseModel):
             "nll": float(-llf),
             "log_likelihood": llf,
             "ll_null": float(self._ll_null),
-            "fit_method": self._fit_method,  # type: ignore
         }
 
-        # Pseudo-R² de McFadden (fourni par statsmodels)
-        with contextlib.suppress(Exception):
-            out["pseudo_r2_mcfadden"] = float(r.prsquared)
+        # McFadden calcule manuellement
+        if self._ll_null != 0:
+            out["pseudo_r2_mcfadden"] = 1.0 - (llf / self._ll_null)
+        else:
+            out["pseudo_r2_mcfadden"] = 0.0
 
         # Alpha (fixe a 1.0 dans la version GLM IRLS)
         out["alpha"] = 1.0
@@ -247,5 +227,13 @@ class NegativeBinomialModel(BaseModel):
                 out["pseudo_r2_nagelkerke"] = float(r2_cs / max_r2_cs)
         except Exception:
             pass
+
+        log.info(
+            "nb.metrics_dict",
+            llf=round(llf, 1),
+            ll_null=round(self._ll_null, 1),
+            n=n,
+            mcfadden=round(out["pseudo_r2_mcfadden"], 4),
+        )
 
         return out
