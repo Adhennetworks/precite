@@ -61,10 +61,24 @@ def load_features(
             files = sorted(path.rglob("*.parquet"))
             if not files:
                 raise FileNotFoundError(f"aucun .parquet dans {path}")
-            tables = [pq.read_table(f, columns=columns) for f in files]
-            table = pa.concat_tables(tables, promote_options="default")
-            df = table.to_pandas()
 
+            # Lire chaque fichier et normaliser n_pages en int32
+            # (certains fichiers ont n_pages en int32, d'autres en float64
+            # a cause des NaN introduits par attach_citations -> pandas cast)
+            tables = []
+            for f in files:
+                t = pq.read_table(f, columns=columns)
+                if "n_pages" in t.column_names:
+                    idx = t.schema.get_field_index("n_pages")
+                    col = t.column("n_pages")
+                    if col.type != pa.int32():
+                        # cast float64 -> int32 : les NaN deviennent null
+                        col = col.cast(pa.int32())
+                        t = t.set_column(idx, "n_pages", col)
+                tables.append(t)
+
+            table = pa.concat_tables(tables, promote_options="permissive")
+            df = table.to_pandas()
     log.info("loader.loaded", source=src, rows=len(df), columns=len(df.columns))
     return df
 

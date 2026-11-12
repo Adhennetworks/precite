@@ -47,6 +47,7 @@ FEATURE_TRANSFORMS: dict[str, str] = {
     "n_references": "arsinh",
     "mean_ref_age": "arsinh",
     "abstract_len": "arsinh",
+    "n_pages": "arsinh",
 }
 
 
