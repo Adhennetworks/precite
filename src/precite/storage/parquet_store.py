@@ -390,12 +390,12 @@ class ParquetStore:
         rows = []
         for p in papers_list:
             r = dict(p)
+            # pmid peut etre int64 (depuis enriched) ou string : cast en string
             r["pmid"] = str(r["pmid"])
             r["year"] = int(r.get("year", 0) or 0)
             r.setdefault("batch_id", batch_id)
             r.setdefault("ingested_at", now)
 
-            # Normalise int8
             for c in int8_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -406,7 +406,6 @@ class ParquetStore:
                     except (ValueError, TypeError):
                         r[c] = 0
 
-            # Normalise int32 (n_pages)
             for c in int_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -417,7 +416,6 @@ class ParquetStore:
                     except (ValueError, TypeError, OverflowError):
                         r[c] = None
 
-            # Normalise float
             for c in float_cols:
                 v = r.get(c)
                 if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
@@ -446,7 +444,6 @@ class ParquetStore:
                 new_pmids = {r["pmid"] for r in decade_rows}
                 existing = existing[~existing["pmid"].astype(str).isin(new_pmids)]
                 existing_rows = existing.to_dict("records")
-                # Nettoie les nan dans les anciens rows
                 for row in existing_rows:
                     for c in int_cols:
                         v = row.get(c)
@@ -460,7 +457,6 @@ class ParquetStore:
             else:
                 all_rows = decade_rows
 
-            # Nettoyage final avant from_pylist
             for row in all_rows:
                 for c in int_cols:
                     v = row.get(c)
@@ -472,10 +468,6 @@ class ParquetStore:
                         row[c] = 0
 
             table = pa.Table.from_pylist(all_rows, schema=PAPERS_SCHEMA)
-            # Ecriture atomique : tmp + os.replace. Si le process crash
-            # pendant l'ecriture, part_file garde son ancienne version
-            # intacte (pas de corruption), et le .tmp est orphelin (a
-            # nettoyer manuellement si besoin).
             tmp_file = part_file.with_suffix(".parquet.tmp")
             pq.write_table(table, tmp_file, compression="zstd")
             os.replace(tmp_file, part_file)

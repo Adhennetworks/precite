@@ -8,15 +8,15 @@ Usage :
 from __future__ import annotations
 
 import argparse
+import contextlib
+import gc
+import os
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-
-import contextlib
-import os
 
 import psutil
 import pyarrow as pa
@@ -25,7 +25,7 @@ import pyarrow.parquet as pq
 from precite.predict.batch import predict_batch
 from precite.utils.logging import configure_logging
 
-MAX_ROWS_PER_BATCH = 200_000  # limite memoire
+MAX_ROWS_PER_BATCH = 200_000
 
 
 def fmt_duration(s: float) -> str:
@@ -41,11 +41,7 @@ def ram_mb() -> float:
 
 
 def load_existing_pmids(store_root: Path, family: str) -> set[int]:
-    """Charge les PMIDs deja presents dans predictions/family=*/.
-
-    Utilise des int au lieu de str : chaque int fait ~28 octets contre
-    ~90 pour une str, soit 3x moins de RAM.
-    """
+    """Charge les PMIDs deja presents dans predictions/family=*/."""
     preds_dir = store_root / "predictions" / f"family={family}"
     if not preds_dir.exists():
         print(f"Pas de predictions existantes pour {family}")
@@ -63,9 +59,10 @@ def load_existing_pmids(store_root: Path, family: str) -> set[int]:
     print(f"  {len(pmids):,} PMIDs en {time.time() - t0:.1f}s  (RAM: {ram_mb():.0f} MB)")
     return pmids
 
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=Path, default=ROOT / "data" / "features")
+    parser.add_argument("--source", type=Path, default=ROOT / "data" / "enriched")
     parser.add_argument("--batch-id", default="full")
     parser.add_argument("--store-root", default=str(ROOT / "data"))
     parser.add_argument("--model-family", choices=["lm", "nb"], default="lm")
@@ -74,7 +71,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-papers",
         action="store_true",
-        help="Ne pas ecrire les papers",
+        help="Ne pas ecrire les papers (recommande si deja faits par rebuild_papers)",
     )
     parser.add_argument(
         "--only-new",
@@ -85,11 +82,12 @@ def main() -> int:
 
     configure_logging(level="WARNING", json_output=False)
 
-    files = sorted(args.source.glob("*.parquet"))
+    # rglob : recursif dans les sous-dossiers (pubmed26n0001/part-*.parquet)
+    files = sorted(args.source.rglob("*.parquet"))
     if args.chunk_start:
         files = files[args.chunk_start:]
     if args.chunk_limit:
-        files = files[:args.chunk_limit]
+        files = files[: args.chunk_limit]
 
     print("=== Prediction batch ===")
     print(f"Source      : {args.source}")
@@ -101,7 +99,6 @@ def main() -> int:
     print(f"RAM initiale: {ram_mb():.0f} MB")
     print()
 
-    # Charge les PMIDs deja predits si --only-new
     existing_pmids: set[str] = set()
     if args.only_new:
         existing_pmids = load_existing_pmids(Path(args.store_root), args.model_family)
@@ -124,7 +121,6 @@ def main() -> int:
                 pf = pq.ParquetFile(f)
                 for batch in pf.iter_batches(batch_size=50_000):
                     df = batch.to_pandas()
-                    len(df)
                     df = df[~df["pmid"].astype("int64").isin(existing_pmids)]
                     if len(df) == 0:
                         continue
@@ -132,7 +128,6 @@ def main() -> int:
                     sub_buffer.append(df)
                     sub_rows += len(df)
 
-                    # Flush sous-fichier quand on atteint 200k
                     if sub_rows >= MAX_ROWS_PER_BATCH:
                         tmp_file = Path(f"{f}.sub{sub_idx}.parquet")
                         combined = pa.Table.from_pandas(
@@ -162,7 +157,6 @@ def main() -> int:
                         sub_buffer = []
                         sub_rows = 0
 
-                # Flush le reste
                 if sub_rows > 0:
                     tmp_file = Path(f"{f}.sub{sub_idx}.parquet")
                     combined = pa.Table.from_pandas(
@@ -213,6 +207,9 @@ def main() -> int:
             print(f"    ECHEC : {exc}", flush=True)
             import traceback
             traceback.print_exc()
+
+        # Libere la RAM entre chaque fichier
+        gc.collect()
 
     print()
     print(f"=== Termine en {fmt_duration(time.time() - t0)} ===")
