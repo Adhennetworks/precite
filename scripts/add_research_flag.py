@@ -126,7 +126,6 @@ def main() -> int:
     files = sorted(args.input_dir.rglob("*.parquet"))
     print(f"{len(files)} fichiers a traiter")
     print(f"Workers : {args.workers} (chargement research_map ~5s/process)")
-    print()
 
     if not files:
         return 0
@@ -151,16 +150,7 @@ def main() -> int:
                 elapsed = time.time() - t0
                 rate = done / elapsed if elapsed > 0 else 0
                 eta = (len(files) - done) / rate if rate > 0 else 0
-                print(
-                    f"[{done:>4}/{len(files)}] "
-                    f"{rate:>5.1f} f/s | ETA {fmt_eta(eta):>5} | "
-                    f"{total:,} lignes, "
-                    f"{total_research:,} research "
-                    f"({100*total_research/max(total,1):.1f}%)",
-                    flush=True,
-                )
 
-    print()
     print(f"=== Termine en {fmt_eta(time.time()-t0)} ===")
     print(f"Total lignes      : {total:,}")
     print(f"Research articles : {total_research:,} ({100*total_research/max(total,1):.1f}%)")

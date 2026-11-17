@@ -66,3 +66,7 @@ huggingface/
 # Local debug scripts (not part of the project)
 check_mlflow.py
 check_predictions.py
+
+hf_cache_fresh/
+check_*.py
+*.xml

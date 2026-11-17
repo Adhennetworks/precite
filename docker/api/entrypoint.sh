@@ -1,17 +1,13 @@
 #!/bin/bash
 set -e
 
-# 1. Telecharger les donnees depuis HF si pas presentes
-if [ ! -d "data/final" ] || [ -z "$(ls -A data/final 2>/dev/null)" ]; then
-    echo "Telechargement des features depuis HF..."
-    python scripts/download_from_hf.py \
-        --source ${HF_DATASET_FEATURES:-precite/features} \
-        --target data/final
-fi
+# Port : SnapDeploy injecte PORT, sinon 8000 par défaut
+PORT="${PORT:-8000}"
 
-# 2. Lancer l'API
-echo "Demarrage de l'API..."
-uvicorn precite.api.main:app \
+echo "Demarrage de l'API Precite sur le port ${PORT}"
+echo "PRECITE_REMOTE=${PRECITE_REMOTE:-false}"
+
+exec uvicorn precite.api.main:app \
     --host 0.0.0.0 \
-    --port 7860 \
-    --workers 2
+    --port "${PORT}" \
+    --log-level info

@@ -73,6 +73,7 @@ def train_one_year(
     window: int,
     model_type: str,
     store: ParquetStore,
+    force: bool = False,
 ) -> dict | None:
     from precite.evaluation.metrics import compute_metrics
     from precite.training.trainer import _filter_for_training, _robust_metrics
@@ -82,7 +83,7 @@ def train_one_year(
     model_name = f"precite-{model_type}-{year}"
 
     existing = {m["model_name"] for m in store.list_models()}
-    if model_name in existing:
+    if model_name in existing and not force:
         print(f"  [{year}] {model_name} deja entraine (skip)", flush=True)
         return None
 
@@ -220,6 +221,7 @@ def main() -> int:
     parser.add_argument("--window", type=int, default=5)
     parser.add_argument("--data", type=Path, default=ROOT / "data" / "final")
     parser.add_argument("--store-root", default=str(ROOT / "data"))
+    parser.add_argument("--force", action="store_true", help="Re-entrainer meme si existant")    
     args = parser.parse_args()
 
     configure_logging(level="WARNING", json_output=False)
@@ -273,6 +275,7 @@ def main() -> int:
                 window=args.window,
                 model_type=args.model_type,
                 store=store,
+                force=args.force,
             )
             if r:
                 results.append(r)
