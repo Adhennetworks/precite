@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
+# Copie pyproject.toml ET README.md (requis par hatchling pour builder le package)
 COPY pyproject.toml ./
+COPY README.md ./
+
 RUN pip install --upgrade pip && pip install -e ".[api]" && pip install duckdb huggingface_hub
 
 COPY src ./src
